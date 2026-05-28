@@ -31,8 +31,8 @@ A liquid-glass status line for the Claude Code CLI. One rounded pill, floating o
 The whole status line is a single pill. Reading left to right:
 
 ```
-   Opus 4.8  xhigh  💡    my-project    main •3    ━━━━●───  62%
-   └─ model  └─ effort  └─ thinking  └─ project  └─ branch + dirty  └─ context bar + %
+   Opus 4.8  xhigh  💡    my-project    main •3    ━━━━●───  62%  124K/200K
+   └─ model  └─ effort  └─ thinking  └─ project  └─ branch + dirty  └─ context: bar, %, tokens
 ```
 
 | Part | What it shows | Detail |
@@ -45,7 +45,7 @@ The whole status line is a single pill. Reading left to right:
 | **Project** | Folder, worktree root, or session name | Falls back to the current directory's basename |
 | **Git** | Branch (or worktree name) + dirty count | A `•N` amber counter appears when there are uncommitted changes |
 | **Context bar** | Slider with a knob | `U+2501` filled track, `U+2500` rail, `U+25CF` knob, all in the current state color |
-| **Context %** | Percent of the context budget used | Auto-compact window if you set one, otherwise the model's context size. Bold, in the state color |
+| **Context %** | Percent of the context budget used | Auto-compact window if you set one, otherwise the model's context size. Bold, in the state color, with the exact used/total token count right after |
 
 ## Install
 
