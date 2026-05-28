@@ -36,6 +36,15 @@ ICON_CTX=$''
 ICON_THINK=$''
 ICON_FAST=$''
 
+# === HYPERLINKS (OSC 8) ===
+# O clique abre uma URL (nao aciona o Claude Code: statusline e um caminho so).
+# Ligado por padrao: terminais modernos suportam e os que nao suportam ignoram a
+# sequencia (sem lixo na tela). Terminal.app nao suporta hyperlink, entao nem
+# emitimos. GLINT_NO_LINKS=1 desliga manualmente.
+osc8=1
+[ "${TERM_PROGRAM:-}" = "Apple_Terminal" ] && osc8=0
+[ -n "${GLINT_NO_LINKS:-}" ] && osc8=0
+
 # === DADOS (jq uma vez) ===
 eval $(echo "$input" | jq -r '
   "model_display=" + ((.model.display_name // "") | @sh) + "\n" +
@@ -77,9 +86,17 @@ else
   project_name=$(basename "$current_dir")
 fi
 
+# URL file:// da pasta do projeto (clica e abre no Finder), so com suporte a hyperlink
+proj_url=""
+if [ $osc8 -eq 1 ]; then
+  proj_dir="${wt_original_cwd:-$current_dir}"
+  proj_url="file://${proj_dir// /%20}"
+fi
+
 # === GIT / WORKTREE (um unico git status) ===
 git_icon="$ICON_GIT"
 dirty_str=""
+git_url=""
 if git -C "$current_dir" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
   git_branch=$(git -C "$current_dir" symbolic-ref --short HEAD 2>/dev/null || echo "detached")
   local changes=0
@@ -92,6 +109,17 @@ if git -C "$current_dir" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
     git_label="$git_branch"
   fi
   [ "$changes" -gt 0 ] && dirty_str=" ${C_DIRTY}•${changes}"
+
+  # URL do repo no GitHub (so se o terminal aceita hyperlink) pra clicar e abrir a branch
+  if [ $osc8 -eq 1 ]; then
+    remote=$(git -C "$current_dir" remote get-url origin 2>/dev/null)
+    case "$remote" in
+      git@github.com:*)       git_url="https://github.com/${${remote#git@github.com:}%.git}" ;;
+      ssh://git@github.com/*) git_url="https://github.com/${${remote#ssh://git@github.com/}%.git}" ;;
+      https://github.com/*)   git_url="${remote%.git}" ;;
+    esac
+    [ -n "$git_url" ] && [ -z "$wt_name" ] && [ "$git_branch" != "detached" ] && git_url="${git_url}/tree/${git_branch}"
+  fi
 else
   git_label="no-git"
 fi
@@ -131,22 +159,8 @@ elif [ "$context_pct" -ge 75 ]; then STATE="\033[38;2;255;159;10m"    # laranja
 elif [ "$context_pct" -ge 50 ]; then STATE="\033[38;2;255;214;10m"    # amarelo
 else STATE="\033[38;2;48;215;88m"; fi                                 # verde
 
-# Barra slider fina (altura menor que o card), knob redondo destacando o final
-bar_total=8
-bar_fill=$(( (context_pct * bar_total + 50) / 100 ))
-[ $bar_fill -gt $bar_total ] && bar_fill=$bar_total
-[ $bar_fill -lt 0 ] && bar_fill=0
-[ $context_pct -gt 0 ] && [ $bar_fill -eq 0 ] && bar_fill=1
-
-bar=""
-i=1
-while [ $i -le $bar_total ]; do
-  if   [ $i -lt $bar_fill ]; then bar="${bar}${STATE}━"
-  elif [ $i -eq $bar_fill ]; then bar="${bar}${STATE}●"
-  else bar="${bar}${C_TERT}─"
-  fi
-  i=$((i+1))
-done
+# A barra do slider e montada no bloco de contexto (build_ctx), adaptando o
+# comprimento a largura da tela.
 
 # Cor do effort por nivel (inspirado no menu /effort do CC)
 case "$effort" in
@@ -155,70 +169,170 @@ case "$effort" in
   high)   C_EFFORT="\033[38;2;77;158;255m" ;;   # azul
   xhigh)  C_EFFORT="\033[38;2;167;139;250m" ;;  # roxo
   max)    C_EFFORT="\033[38;2;210;110;245m" ;;  # magenta
+  ultra)  C_EFFORT="\033[38;2;45;215;255m" ;;   # ciano eletrico (ultracode, topo do /effort)
   *)      C_EFFORT="$C_SECOND" ;;
 esac
 
-# === MONTAGEM "liquid glass" - gradiente horizontal char-by-char (alta resolucao) ===
-# Quebramos a linha em CELULAS (cada uma = 1 fg + 1 char) e reconstruimos celula a
-# celula com um BG interpolado por uma curva de luz CONTINUA (sem degraus/ilhas):
-# bordas claras (rim light, o vidro pega luz nas pontas) -> centro mais escuro
-# (corpo translucido) -> bordas claras de novo. Tint frio azulado.
+# === MONTAGEM "liquid glass" + responsividade (quebra inteligente em pilulas) ===
+# A linha vira CELULAS (1 fg + 1 char cada) e e reconstruida celula a celula com um
+# BG interpolado por uma curva de luz CONTINUA: bordas claras (rim light) -> centro
+# escuro (corpo do vidro) -> bordas claras. Tint frio azulado.
+# Responsividade: o conteudo e agrupado em BLOCOS logicos atomicos (identidade,
+# projeto, git, contexto). Medimos a largura util do terminal e, quando nao cabe
+# tudo, abrimos pilulas extras embaixo - cada uma completa e arredondada, sem nunca
+# cortar no meio de um bloco (greedy: enche, quebra so quando o proximo nao cabe).
 GLASS_BR=50;  GLASS_BG=50;  GLASS_BB=58     # centro (corpo do vidro, mais escuro)
 GLASS_SR=96;  GLASS_SG=100; GLASS_SB=118    # bordas (vidro pegando luz, cinza-azul claro)
 EDGE_PEAK=680  # quanto as bordas clareiam (0..1000); o centro fica na cor base
-sp="   "
+sep="   "      # separador entre blocos na mesma pilula
 
-# Empilha celulas (char + fg), sem BG. Caps ficam FORA do loop pra formar a pilula.
-cells_ch=(); cells_fg=()
+# Largura util: o Claude Code exporta COLUMNS pro statusline; tput cols e o fallback;
+# 80 se nada responder. Cada pilula gasta 2 caps + padding (2 de cada lado) + folga.
+term_w=${COLUMNS:-0}
+[[ "$term_w" = <-> ]] || term_w=0
+[ "$term_w" -le 0 ] && term_w=$(tput cols 2>/dev/null || echo 0)
+[[ "$term_w" = <-> ]] || term_w=80
+[ "$term_w" -le 0 ] && term_w=80
+PADW=2; CAPW=2; SEPW=${#sep}; SAFETY=1
+cap=$(( term_w - CAPW - 2*PADW - SAFETY ))
+[ $cap -lt 12 ] && cap=12
+
+# Trunca textos variaveis pra um bloco nunca estourar sozinho em telas estreitas.
+maxtext=$(( cap - 6 )); [ $maxtext -lt 8 ] && maxtext=8
+[ ${(m)#project_name} -gt $maxtext ] && project_name="${project_name[1,$((maxtext-1))]}…"
+[ ${(m)#git_label} -gt $maxtext ]    && git_label="${git_label[1,$((maxtext-1))]}…"
+
+# Empilha celulas (char + fg) e acumula o texto puro do bloco (pra medir a largura).
 _push() { local fg="$1" txt="$2" n=${#2} k=1
+  _ptext+="$txt"
   while [ $k -le $n ]; do cells_ch+=("${txt[$k]}"); cells_fg+=("$fg"); k=$((k+1)); done; }
 
-_push "$C_TERT" "  "
-_push "${C_ACCENT}${BOLD}" "$model"
-[ -n "$effort" ]          && _push "${C_EFFORT}${BOLD}" "  ${effort}"
-[ "$thinking" = "true" ]  && _push "$C_GOLD"   " ${ICON_THINK}"
-[ "$fast_mode" = "true" ] && _push "$C_SECOND" " ${ICON_FAST}"
-_push "${NB}${C_SECOND}" "${sp}${ICON_FOLDER} "
+# --- Bloco 1: identidade (modelo, effort, lampada do thinking, raio do fast) ---
+# Em tela apertada o texto do effort sai; modelo, lampada e raio sempre ficam.
+build_id() {  # <1=com texto do effort | 0=sem>
+  cells_ch=(); cells_fg=(); _ptext=""
+  _push "${C_ACCENT}${BOLD}" "$model"
+  [ "$1" = "1" ] && [ -n "$effort" ] && _push "${C_EFFORT}${BOLD}" "  ${effort}"
+  [ "$thinking" = "true" ]  && _push "$C_GOLD"   " ${ICON_THINK}"
+  [ "$fast_mode" = "true" ] && _push "$C_SECOND" " ${ICON_FAST}"
+}
+build_id 1
+[ ${(m)#_ptext} -gt $cap ] && build_id 0
+g1_ch=("${cells_ch[@]}"); g1_fg=("${cells_fg[@]}"); g1_w=${(m)#_ptext}
+
+# --- Bloco 2: projeto ---
+cells_ch=(); cells_fg=(); _ptext=""
+_push "${NB}${C_SECOND}" "${ICON_FOLDER} "
 _push "$C_PRIMARY" "$project_name"
-_push "$C_SECOND" "${sp}${git_icon} "
+g2_ch=("${cells_ch[@]}"); g2_fg=("${cells_fg[@]}"); g2_w=${(m)#_ptext}
+if [ -n "$proj_url" ]; then            # envolve o bloco num hyperlink (largura nao muda)
+  g2_fg[1]="\033]8;;${proj_url}\a${g2_fg[1]}"
+  g2_ch[-1]="${g2_ch[-1]}\033]8;;\a"
+fi
+
+# --- Bloco 3: git / worktree ---
+cells_ch=(); cells_fg=(); _ptext=""
+_push "$C_SECOND" "${git_icon} "
 _push "$C_PRIMARY" "$git_label"
 [ -n "$dirty_str" ] && _push "$C_DIRTY" " •${changes}"
-_push "$C_SECOND" "${sp}${ICON_CTX} "
-i=1
-while [ $i -le $bar_total ]; do
-  if   [ $i -lt $bar_fill ]; then _push "$STATE" "━"
-  elif [ $i -eq $bar_fill ]; then _push "$STATE" "●"
-  else _push "$C_TERT" "─"; fi
-  i=$((i+1))
+g3_ch=("${cells_ch[@]}"); g3_fg=("${cells_fg[@]}"); g3_w=${(m)#_ptext}
+if [ -n "$git_url" ]; then             # envolve o bloco num hyperlink (largura nao muda)
+  g3_fg[1]="\033]8;;${git_url}\a${g3_fg[1]}"
+  g3_ch[-1]="${g3_ch[-1]}\033]8;;\a"
+fi
+
+# --- Bloco 4: contexto (icone, slider, %, tokens) ---
+# Adapta a tela: completo (barra 8 + % + tokens) -> sem tokens -> barra curta sem
+# tokens. Escolhe a versao mais rica que cabe numa pilula.
+build_ctx() {  # <bar_len> <1=mostra tokens | 0=nao>
+  cells_ch=(); cells_fg=(); _ptext=""
+  local bl=$1 bf i
+  bf=$(( (context_pct * bl + 50) / 100 ))
+  [ $bf -gt $bl ] && bf=$bl; [ $bf -lt 0 ] && bf=0
+  [ $context_pct -gt 0 ] && [ $bf -eq 0 ] && bf=1
+  _push "$C_SECOND" "${ICON_CTX} "
+  i=1
+  while [ $i -le $bl ]; do
+    if   [ $i -lt $bf ]; then _push "$STATE" "━"
+    elif [ $i -eq $bf ]; then _push "$STATE" "●"
+    else _push "$C_TERT" "─"; fi
+    i=$((i+1))
+  done
+  _push "${STATE}${BOLD}" "  ${context_pct}%"
+  if [ "$2" = "1" ]; then
+    _push "$C_PRIMARY" "  ${tokens_display}"
+    _push "$C_SECOND" "/${context_display}"
+  fi
+}
+build_ctx 8 1
+[ ${(m)#_ptext} -gt $cap ] && build_ctx 8 0
+[ ${(m)#_ptext} -gt $cap ] && build_ctx 4 0
+g4_ch=("${cells_ch[@]}"); g4_fg=("${cells_fg[@]}"); g4_w=${(m)#_ptext}
+
+# --- Greedy: enche cada pilula ate o limite, abre nova quando o proximo bloco nao cabe ---
+avail=(); vn=""
+for gi in 1 2 3 4; do
+  vn="g${gi}_w"; [ "${(P)vn}" -gt 0 ] && avail+=($gi)
 done
-_push "${STATE}${BOLD}" "  ${context_pct}%"
-_push "$C_PRIMARY" "  ${tokens_display}"
-_push "$C_SECOND" "/${context_display}"
-_push "$C_TERT" "  "
+lines=(); cur=""; curw=0
+for gi in "${avail[@]}"; do
+  vn="g${gi}_w"; gw=${(P)vn}
+  if [ -z "$cur" ]; then
+    cur="$gi"; curw=$gw
+  elif [ $((curw + SEPW + gw)) -le $cap ]; then
+    cur="$cur $gi"; curw=$((curw + SEPW + gw))
+  else
+    lines+=("$cur"); cur="$gi"; curw=$gw
+  fi
+done
+[ -n "$cur" ] && lines+=("$cur")
 
-N=${#cells_ch}; [ $N -lt 1 ] && N=1
-
-# Cor das pontas (L=EDGE_PEAK, mais claras) com tint frio = cor dos caps (pilula coesa).
+# --- Cor das pontas (caps): mesma luz da borda do gradiente (pilula coesa) ---
 LE=$EDGE_PEAK; [ $LE -gt 1000 ] && LE=1000
 ER=$(( GLASS_BR + (GLASS_SR-GLASS_BR)*LE/1000 - 5 )); [ $ER -lt 0 ] && ER=0
 EG=$(( GLASS_BG + (GLASS_SG-GLASS_BG)*LE/1000 ))
 EB=$(( GLASS_BB + (GLASS_SB-GLASS_BB)*LE/1000 + 9 )); [ $EB -gt 255 ] && EB=255
 FCAP="\033[38;2;${ER};${EG};${EB}m"
 
-line="${FCAP}${CAP_L}"
-k=0
-while [ $k -lt $N ]; do
-  [ $N -gt 1 ] && t=$(( k * 1000 / (N - 1) )) || t=500
-  d=$(( 2*t - 1000 )); d2=$(( d * d / 1000 ))   # 0 no centro, 1000 nas pontas
-  L=$(( EDGE_PEAK * d2 / 1000 )); [ $L -gt 1000 ] && L=1000
-  r=$(( GLASS_BR + (GLASS_SR - GLASS_BR) * L / 1000 ))
-  g=$(( GLASS_BG + (GLASS_SG - GLASS_BG) * L / 1000 ))
-  bch=$(( GLASS_BB + (GLASS_SB - GLASS_BB) * L / 1000 ))
-  r=$(( r - 5 )); [ $r -lt 0 ] && r=0
-  bch=$(( bch + 9 )); [ $bch -gt 255 ] && bch=255
-  line="${line}\033[48;2;${r};${g};${bch}m${cells_fg[$((k+1))]}${cells_ch[$((k+1))]}"
-  k=$((k+1))
-done
-line="${line}${RESET}${FCAP}${CAP_R}${RESET}"
+# Renderiza uma pilula a partir de pcells_ch/pcells_fg -> REPLY (gradiente + caps).
+render_pill() {
+  local N=${#pcells_ch}; [ $N -lt 1 ] && N=1
+  local line="${FCAP}${CAP_L}" k=0 t d d2 L r g bch
+  while [ $k -lt $N ]; do
+    [ $N -gt 1 ] && t=$(( k * 1000 / (N - 1) )) || t=500
+    d=$(( 2*t - 1000 )); d2=$(( d * d / 1000 ))   # 0 no centro, 1000 nas pontas
+    L=$(( EDGE_PEAK * d2 / 1000 )); [ $L -gt 1000 ] && L=1000
+    r=$(( GLASS_BR + (GLASS_SR - GLASS_BR) * L / 1000 ))
+    g=$(( GLASS_BG + (GLASS_SG - GLASS_BG) * L / 1000 ))
+    bch=$(( GLASS_BB + (GLASS_SB - GLASS_BB) * L / 1000 ))
+    r=$(( r - 5 )); [ $r -lt 0 ] && r=0
+    bch=$(( bch + 9 )); [ $bch -gt 255 ] && bch=255
+    line="${line}\033[48;2;${r};${g};${bch}m${pcells_fg[$((k+1))]}${pcells_ch[$((k+1))]}"
+    k=$((k+1))
+  done
+  REPLY="${line}${RESET}${FCAP}${CAP_R}${RESET}"
+}
 
-printf "%b" "$line"
+# Monta as celulas de uma pilula (padding + blocos + separadores) e renderiza.
+render_line() {  # args: indices de bloco (ex: render_line 1 2 3)
+  pcells_ch=(); pcells_fg=()
+  pcells_ch+=(" " " "); pcells_fg+=("$C_TERT" "$C_TERT")
+  local first=1 gi s chname fgname
+  for gi in "$@"; do
+    if [ $first -eq 0 ]; then
+      s=1; while [ $s -le $SEPW ]; do pcells_ch+=(" "); pcells_fg+=("$C_TERT"); s=$((s+1)); done
+    fi
+    first=0
+    chname="g${gi}_ch"; fgname="g${gi}_fg"
+    pcells_ch+=("${(@P)chname}"); pcells_fg+=("${(@P)fgname}")
+  done
+  pcells_ch+=(" " " "); pcells_fg+=("$C_TERT" "$C_TERT")
+  render_pill
+}
+
+out=""
+for ln in "${lines[@]}"; do
+  render_line ${=ln}
+  if [ -n "$out" ]; then out="${out}"$'\n'"${REPLY}"; else out="$REPLY"; fi
+done
+printf "%b" "$out"
