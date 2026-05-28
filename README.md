@@ -11,7 +11,7 @@
 
 A liquid-glass status line for the Claude Code CLI. One rounded pill, floating on your terminal's dark background, with a background gradient painted cell by cell so the edges catch light and the center recedes into glass. It shows the model, effort, context pressure, and your git state at a glance, and renders in roughly 20ms with a single `jq` call and a single `git` call.
 
-![preview](preview.svg)
+![preview](preview.png)
 
 </div>
 
