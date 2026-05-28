@@ -115,6 +115,18 @@ else
 fi
 [ "$context_pct" -gt 100 ] && context_pct=100
 
+# Tokens em formato curto (ex: 473K / 600K). Usa REPLY (sem subshell = sem fork).
+fmt_tok() {
+  local t=${1:-0}
+  if [ "$t" -ge 1000000 ]; then
+    local m=$((t/1000000)) r=$((t%1000000/100000))
+    [ "$r" -eq 0 ] && REPLY="${m}M" || REPLY="${m}.${r}M"
+  elif [ "$t" -ge 1000 ]; then REPLY="$((t/1000))K"
+  else REPLY="$t"; fi
+}
+fmt_tok $total_tokens;   tokens_display=$REPLY
+fmt_tok $compact_window; context_display=$REPLY
+
 # Cor unica do estado de contexto
 if   [ "$context_pct" -ge 90 ]; then STATE="\033[38;2;255;69;58m"     # vermelho
 elif [ "$context_pct" -ge 75 ]; then STATE="\033[38;2;255;159;10m"    # laranja
@@ -181,8 +193,9 @@ while [ $i -le $bar_total ]; do
   else _push "$C_TERT" "─"; fi
   i=$((i+1))
 done
-_push "$C_SECOND" " "
-_push "${STATE}${BOLD}" "${context_pct}%"
+_push "${STATE}${BOLD}" "  ${context_pct}%"
+_push "$C_PRIMARY" "  ${tokens_display}"
+_push "$C_SECOND" "/${context_display}"
 _push "$C_TERT" "  "
 
 N=${#cells_ch}; [ $N -lt 1 ] && N=1
