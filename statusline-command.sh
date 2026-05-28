@@ -43,7 +43,6 @@ eval $(echo "$input" | jq -r '
   "effort=" + ((.effort.level // "") | @sh) + "\n" +
   "fast_mode=" + ((.fast_mode // false) | tostring) + "\n" +
   "thinking=" + ((.thinking.enabled // false) | tostring) + "\n" +
-  "session_name=" + ((.session_name // "") | @sh) + "\n" +
   "current_dir=" + ((.workspace.current_dir // .cwd // ".") | @sh) + "\n" +
   "wt_name=" + ((.worktree.name // "") | @sh) + "\n" +
   "wt_original_cwd=" + ((.worktree.original_cwd // "") | @sh) + "\n" +
@@ -70,10 +69,9 @@ else
   esac
 fi
 
-# === PROJETO (session_name > raiz do projeto/worktree > pasta atual) ===
-if [ -n "$session_name" ]; then
-  project_name="$session_name"
-elif [ -n "$wt_original_cwd" ]; then
+# === PROJETO (nome da pasta; raiz do projeto quando em worktree) ===
+# Nao usamos session_name de proposito: o Claude Code ja mostra a sessao.
+if [ -n "$wt_original_cwd" ]; then
   project_name=$(basename "$wt_original_cwd")
 else
   project_name=$(basename "$current_dir")
