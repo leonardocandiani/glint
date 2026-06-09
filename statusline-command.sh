@@ -186,15 +186,17 @@ GLASS_SR=96;  GLASS_SG=100; GLASS_SB=118    # bordas (vidro pegando luz, cinza-a
 EDGE_PEAK=680  # quanto as bordas clareiam (0..1000); o centro fica na cor base
 sep="   "      # separador entre blocos na mesma pilula
 
-# Alguns terminais com renderer próprio estragam o gradiente de fundo truecolor
-# (color management / Display P3 que satura os tons sutis do glass, deixando o fundo
-# manchado). Nesses, caímos num fundo SÓLIDO, uniforme em qualquer renderer.
-#  - GLINT_FLAT_BG=1: opt-in manual, funciona em QUALQUER terminal.
-#  - Zentty (be.zenjoy.zentty): detectado automaticamente pelas vars ZENTTY_* que ele
-#    injeta no ambiente. É o sinal confiável: sobrevive à sanitização de env do Claude
-#    Code (que apaga __CFBundleIdentifier/TERM_PROGRAM) e à sessão rodar num daemon.
+# GLINT_FLAT_BG=1: troca o gradiente por fundo sólido (cor única sobrevive a
+# qualquer quantização de cor). Auto-ativa sob Zentty: o Claude Code rebaixa a
+# UI pra 256 cores nas sessões dentro dele (a detecção de capability não
+# reconhece o terminal; ver anthropics/claude-code#59737) e o gradiente
+# truecolor quantizado vira bandas. O renderer do Zentty em si é truecolor OK
+# (no shell o gradiente sai liso); o rebaixamento é na re-render do CC.
+# GLINT_FORCE_GRADIENT=1 desliga o auto-flat pra testar quando houver fix.
 glass_flat=0
-if [ -n "${GLINT_FLAT_BG:-}" ] || [ -n "${ZENTTY_INSTANCE_ID:-}${ZENTTY_PANE_ID:-}${ZENTTY_SHELL_INTEGRATION:-}" ]; then
+if [ -n "${GLINT_FLAT_BG:-}" ]; then
+  glass_flat=1
+elif [ -z "${GLINT_FORCE_GRADIENT:-}" ] && [ -n "${ZENTTY_INSTANCE_ID:-}${ZENTTY_PANE_ID:-}${ZENTTY_SHELL_INTEGRATION:-}" ]; then
   glass_flat=1
 fi
 
