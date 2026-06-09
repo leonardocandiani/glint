@@ -186,6 +186,18 @@ GLASS_SR=96;  GLASS_SG=100; GLASS_SB=118    # bordas (vidro pegando luz, cinza-a
 EDGE_PEAK=680  # quanto as bordas clareiam (0..1000); o centro fica na cor base
 sep="   "      # separador entre blocos na mesma pilula
 
+# Alguns terminais com renderer próprio estragam o gradiente de fundo truecolor
+# (color management / Display P3 que satura os tons sutis do glass, deixando o fundo
+# manchado). Nesses, caímos num fundo SÓLIDO, uniforme em qualquer renderer.
+#  - GLINT_FLAT_BG=1: opt-in manual, funciona em QUALQUER terminal.
+#  - Zentty (be.zenjoy.zentty): detectado automaticamente pelas vars ZENTTY_* que ele
+#    injeta no ambiente. É o sinal confiável: sobrevive à sanitização de env do Claude
+#    Code (que apaga __CFBundleIdentifier/TERM_PROGRAM) e à sessão rodar num daemon.
+glass_flat=0
+if [ -n "${GLINT_FLAT_BG:-}" ] || [ -n "${ZENTTY_INSTANCE_ID:-}${ZENTTY_PANE_ID:-}${ZENTTY_SHELL_INTEGRATION:-}" ]; then
+  glass_flat=1
+fi
+
 # Largura util: o Claude Code exporta COLUMNS pro statusline; tput cols e o fallback;
 # 80 se nada responder. Cada pilula gasta 2 caps + padding (2 de cada lado) + folga.
 term_w=${COLUMNS:-0}
@@ -292,21 +304,35 @@ LE=$EDGE_PEAK; [ $LE -gt 1000 ] && LE=1000
 ER=$(( GLASS_BR + (GLASS_SR-GLASS_BR)*LE/1000 - 5 )); [ $ER -lt 0 ] && ER=0
 EG=$(( GLASS_BG + (GLASS_SG-GLASS_BG)*LE/1000 ))
 EB=$(( GLASS_BB + (GLASS_SB-GLASS_BB)*LE/1000 + 9 )); [ $EB -gt 255 ] && EB=255
+# No flat, as pontas usam a MESMA cor do corpo sólido (sem o realce de borda, que num
+# renderer com cor desviada destoa e puxa cor): pílula uniforme de ponta a ponta.
+if [ "$glass_flat" = "1" ]; then
+  ER=$(( GLASS_BR - 5 )); [ $ER -lt 0 ] && ER=0
+  EG=$GLASS_BG
+  EB=$(( GLASS_BB + 9 )); [ $EB -gt 255 ] && EB=255
+fi
 FCAP="\033[38;2;${ER};${EG};${EB}m"
 
 # Renderiza uma pilula a partir de pcells_ch/pcells_fg -> REPLY (gradiente + caps).
 render_pill() {
   local N=${#pcells_ch}; [ $N -lt 1 ] && N=1
   local line="${FCAP}${CAP_L}" k=0 t d d2 L r g bch
+  if [ "$glass_flat" = "1" ]; then   # fundo solido (cor central), imune ao color mgmt do terminal
+    r=$(( GLASS_BR - 5 )); [ $r -lt 0 ] && r=0
+    g=$GLASS_BG
+    bch=$(( GLASS_BB + 9 )); [ $bch -gt 255 ] && bch=255
+  fi
   while [ $k -lt $N ]; do
-    [ $N -gt 1 ] && t=$(( k * 1000 / (N - 1) )) || t=500
-    d=$(( 2*t - 1000 )); d2=$(( d * d / 1000 ))   # 0 no centro, 1000 nas pontas
-    L=$(( EDGE_PEAK * d2 / 1000 )); [ $L -gt 1000 ] && L=1000
-    r=$(( GLASS_BR + (GLASS_SR - GLASS_BR) * L / 1000 ))
-    g=$(( GLASS_BG + (GLASS_SG - GLASS_BG) * L / 1000 ))
-    bch=$(( GLASS_BB + (GLASS_SB - GLASS_BB) * L / 1000 ))
-    r=$(( r - 5 )); [ $r -lt 0 ] && r=0
-    bch=$(( bch + 9 )); [ $bch -gt 255 ] && bch=255
+    if [ "$glass_flat" != "1" ]; then
+      [ $N -gt 1 ] && t=$(( k * 1000 / (N - 1) )) || t=500
+      d=$(( 2*t - 1000 )); d2=$(( d * d / 1000 ))   # 0 no centro, 1000 nas pontas
+      L=$(( EDGE_PEAK * d2 / 1000 )); [ $L -gt 1000 ] && L=1000
+      r=$(( GLASS_BR + (GLASS_SR - GLASS_BR) * L / 1000 ))
+      g=$(( GLASS_BG + (GLASS_SG - GLASS_BG) * L / 1000 ))
+      bch=$(( GLASS_BB + (GLASS_SB - GLASS_BB) * L / 1000 ))
+      r=$(( r - 5 )); [ $r -lt 0 ] && r=0
+      bch=$(( bch + 9 )); [ $bch -gt 255 ] && bch=255
+    fi
     line="${line}\033[48;2;${r};${g};${bch}m${pcells_fg[$((k+1))]}${pcells_ch[$((k+1))]}"
     k=$((k+1))
   done
