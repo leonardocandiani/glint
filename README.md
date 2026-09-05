@@ -1,19 +1,36 @@
+<!-- Banner -->
+<div align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:1a1a2e,100:00d9ff&height=200&section=header&text=glint&fontSize=54&fontColor=ffffff&animation=fadeIn&fontAlignY=36&desc=A%20liquid-glass%20status%20line%20for%20Claude%20Code&descAlignY=58&descSize=16" alt="glint" width="100%" />
+</div>
+
 <div align="center">
 
-# glint
+  <br>
+  <img src="preview.png" alt="glint preview" width="820" />
+  <br><br>
 
-### A liquid-glass status line for Claude Code
+  <p><strong>One rounded pill on your terminal's dark background: model, effort, context pressure and git state at a glance, drawn in about 20ms.</strong></p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-1a73e8.svg)](LICENSE)
-[![Shell: zsh](https://img.shields.io/badge/shell-zsh-89e051.svg)](https://www.zsh.org/)
-[![Made for Claude Code](https://img.shields.io/badge/made%20for-Claude%20Code-d4a72c.svg)](https://docs.claude.com/en/docs/claude-code)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-a78bfa.svg)](https://github.com/leonardocandiani/glint/pulls)
+  <p>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-00d9ff?style=for-the-badge" alt="License: MIT" /></a>
+    <a href="https://docs.claude.com/en/docs/claude-code"><img src="https://img.shields.io/badge/Made%20for-Claude%20Code-D97757?style=for-the-badge&logo=anthropic&logoColor=white" alt="Made for: Claude Code" /></a>
+    <img src="https://img.shields.io/badge/shell-zsh-1a1a2e?style=for-the-badge&logo=zsh&logoColor=white" alt="shell: zsh" />
+    <a href="https://github.com/leonardocandiani/glint/pulls"><img src="https://img.shields.io/badge/PRs-welcome-1a1a2e?style=for-the-badge" alt="PRs: welcome" /></a>
+  </p>
 
-A liquid-glass status line for the Claude Code CLI. One rounded pill, floating on your terminal's dark background, with a background gradient painted cell by cell so the edges catch light and the center recedes into glass. It shows the model, effort, context pressure, and your git state at a glance, and renders in roughly 20ms with a single `jq` call and a single `git` call.
-
-![preview](preview.png)
-
+  <p>
+  <a href="#features">Features</a> •
+  <a href="#preview-anatomy">Preview / Anatomy</a> •
+  <a href="#install">Install</a> •
+  <a href="#configuration">Configuration</a> •
+  <a href="#how-it-works">How it works</a> •
+  <a href="#requirements">Requirements</a> •
+  <a href="#customization">Customization</a> •
+  <a href="#license">License</a>
+  </p>
 </div>
+
+<br>
 
 ## Features
 
@@ -142,3 +159,28 @@ Built by **Leonardo Candiani** ([@leonardocandiani](https://github.com/leonardoc
 
 [MIT](LICENSE) © Leonardo Candiani
 
+<br>
+
+---
+
+<div align="center">
+  <p><strong>Built by <a href="https://github.com/leonardocandiani">Leonardo Candiani</a></strong> · More projects at <a href="https://github.com/leonardocandiani?tab=repositories">github.com/leonardocandiani</a></p>
+  <a href="https://leonardocandiani.com.br">
+    <img src="https://img.shields.io/badge/-Website-0d1117?style=for-the-badge&logo=safari&logoColor=00d9ff" alt="Website" />
+  </a>
+  <a href="https://github.com/leonardocandiani">
+    <img src="https://img.shields.io/badge/-GitHub-0d1117?style=for-the-badge&logo=github&logoColor=00d9ff" alt="GitHub" />
+  </a>
+  <a href="https://instagram.com/leonardocandiani">
+    <img src="https://img.shields.io/badge/-Instagram-E4405F?style=for-the-badge&logo=instagram&logoColor=white" alt="Instagram" />
+  </a>
+  <a href="https://youtube.com/@oleonardocandiani">
+    <img src="https://img.shields.io/badge/-YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube" />
+  </a>
+</div>
+
+<br>
+
+<div align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:00d9ff,50:1a1a2e,100:0d1117&height=120&section=footer&text=Thanks%20for%20stopping%20by&fontSize=18&fontColor=ffffff&fontAlignY=72" alt="Thanks for stopping by" width="100%" />
+</div>
