@@ -398,6 +398,31 @@ case "$st_ind" in
 esac
 st_url=""; [ $osc8 -eq 1 ] && st_url="https://status.claude.com"
 
+# Rede: um HEAD leve na API da Anthropic mede se a internet daqui esta boa,
+# cabo ou wifi tanto faz. Cache de 60 s renovado em background, como o status.
+# Guarda os milissegundos; a cor e a leitura: verde ate 300 ms, amarelo ate
+# 1 s, vermelho sem resposta.
+net_file="$CACHE_DIR/net-latency"
+net_ms=""; net_ts=0
+if [ -f "$net_file" ]; then
+  IFS='|' read -r net_ms net_ts < "$net_file"
+  [[ "$net_ts" = <-> ]] || net_ts=0
+fi
+if [ $((now_ts - net_ts)) -gt 60 ] && [ ! -f "$net_file.lock" ]; then
+  ( touch "$net_file.lock"
+    t=$(curl -sS -o /dev/null --max-time 4 -w '%{time_total}' -I https://api.anthropic.com/ 2>/dev/null) || t=""
+    ms=""; [ -n "$t" ] && ms=$(printf '%s' "$t" | awk '{printf "%d", $1*1000}')
+    printf '%s|%s\n' "${ms:-down}" "$(date +%s)" > "$net_file"
+    rm -f "$net_file.lock" ) >/dev/null 2>&1 </dev/null &!
+fi
+ICON_NET=$'\U000F05A9'
+if [[ "$net_ms" = <-> ]]; then
+  if   [ "$net_ms" -le 300 ];  then C_NET="\033[38;2;48;215;88m"
+  elif [ "$net_ms" -le 1000 ]; then C_NET="\033[38;2;255;214;10m"
+  else                              C_NET="\033[38;2;255;159;10m"; fi
+elif [ "$net_ms" = down ]; then C_NET="\033[38;2;255;69;58m"
+else C_NET="$C_TERT"; fi
+
 C_VER="$C_SECOND"; ver_url=""
 if [ -n "$cc_version" ]; then
   if [ -n "$latest" ]; then
@@ -543,6 +568,7 @@ build_acct() {  # <1=com limites | 0=so conta e versao>
     local st_start=$(( ${#cells_ch} + 1 ))
     _push "$C_ST" "●"
     [ "$st_ind" != none ] && [ -n "$st_txt" ] && _push "$C_ST" " ${st_txt}"
+    _push "$C_NET" "  ${ICON_NET}"
     if [ -n "$st_url" ]; then
       cells_fg[$st_start]="\033]8;;${st_url}\a${cells_fg[$st_start]}"
       cells_ch[-1]="${cells_ch[-1]}\033]8;;\a"
