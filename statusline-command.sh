@@ -341,6 +341,22 @@ if [ -d "$CA_DIR/profiles" ]; then
   fi
 fi
 
+# Limites: o payload do Claude Code so muda quando ESTA sessao recebe resposta da
+# API, entao numa sessao parada ele envelhece enquanto a conta e gasta por
+# outras. A medicao do autoswitch (a cada 5 min, mesma conta, pelos headers)
+# tem prioridade quando tem menos de 10 min; o payload fica de reserva.
+measure_file="$CA_DIR/measure.json"
+if [ -n "$account" ] && [ -f "$measure_file" ]; then
+  eval $(jq -r --arg a "$account" '
+    def age: (now - (.measured_at | fromdateiso8601? // 0));
+    if age < 600 and (.profiles[$a] // null) != null then
+      .profiles[$a] | "m5=" + ((.util_5h // "") | tostring) + " mr5=" + ((.reset_5h // "") | tostring)
+        + " m7=" + ((.util_7d // "") | tostring) + " mr7=" + ((.reset_7d // "") | tostring)
+    else "m5= mr5= m7= mr7=" end' "$measure_file" 2>/dev/null)
+  [[ "${m5:-}" = <-> ]] && { rl5=$m5; r5=$mr5; }
+  [[ "${m7:-}" = <-> ]] && { rl7=$m7; r7=$mr7; }
+fi
+
 # Versao: a que roda (vem no JSON) contra a mais nova publicada no npm, lida de
 # um cache de 30 min que e renovado em background (a statusline nunca espera rede).
 # Verde = na ultima; amarelo = patch atras; vermelho = minor/major atras.
