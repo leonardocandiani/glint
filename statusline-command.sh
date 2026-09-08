@@ -242,15 +242,20 @@ _push() { local fg="$1" txt="$2" n=${#2} k=1
   while [ $k -le $n ]; do cells_ch+=("${txt[$k]}"); cells_fg+=("$fg"); k=$((k+1)); done; }
 
 # --- Bloco 1: identidade (modelo, effort, lampada do thinking, raio do fast) ---
-# O effort ganha um velocimetro solido (FontAwesome tachometer) na cor do nivel;
-# em tela apertada a palavra sai e o velocimetro fica.
-ICON_EFFORT=$'\U000F0E4'
+# O effort e so um velocimetro (o mesmo de tres niveis da cota), sem palavra:
+# ponteiro baixo em low, meio em medium, no fim de high pra cima; a cor do
+# nivel separa high, xhigh, max e ultra.
+case "$effort" in
+  low)                  ICON_EFFORT=$'\U000F0F86' ;;
+  medium)               ICON_EFFORT=$'\U000F0F85' ;;
+  high|xhigh|max|ultra) ICON_EFFORT=$'\U000F04C5' ;;
+  *)                    ICON_EFFORT="" ;;
+esac
 # Em tela apertada o texto do effort sai; modelo, lampada e raio sempre ficam.
 build_id() {  # <1=com texto do effort | 0=sem>
   cells_ch=(); cells_fg=(); _ptext=""
   _push "${C_ACCENT}${BOLD}" "$model"
-  [ -n "$effort" ] && _push "$C_EFFORT" "  ${ICON_EFFORT}  "
-  [ "$1" = "1" ] && [ -n "$effort" ] && _push "${C_EFFORT}${BOLD}" "${effort}"
+  [ -n "$ICON_EFFORT" ] && _push "$C_EFFORT" "  ${ICON_EFFORT} "
   [ "$thinking" = "true" ]  && _push "$C_GOLD"   " ${ICON_THINK}"
   [ "$fast_mode" = "true" ] && _push "$C_SECOND" " ${ICON_FAST}"
 }

@@ -63,7 +63,7 @@ license:  MIT
 - 🧠 **Future-proof model name** read straight from `model.display_name`. Opus 4.8, 4.9, whatever ships next shows up on its own, no script edits.
 - 📊 **Context bar that can track auto-compaction.** Set `CLAUDE_CODE_AUTO_COMPACT_WINDOW` and the bar measures against it, so the percentage shows how close you are to a compaction instead of the distant model ceiling. Falls back to the model's context size otherwise.
 - 🎚️ **Thin slider bar** with a round knob marking the fill point. State color shifts with pressure: green under 50%, yellow at 50%, orange at 75%, red at 90%.
-- 🎨 **Effort as a speedometer**: a solid Nerd Font tachometer next to the level, both in the level's colour: low gold, medium green, high blue, xhigh purple, max magenta, ultra (ultracode) electric cyan. On a tight terminal the word goes and the gauge stays.
+- 🎨 **Effort as a speedometer, no word**: the same three-level Nerd Font gauge used for the account pace, needle low for `low`, middle for `medium`, at the end from `high` up, in the level's colour: low gold, medium green, high blue, xhigh purple, max magenta, ultra (ultracode) electric cyan.
 - 💡 **Thinking lamp** (gold) when extended thinking is on, plus a **bolt** when fast mode is active.
 - 🌿 **Git and worktree aware**: branch name, a dirty counter for uncommitted changes, and the worktree name when you're inside one.
 - 📐 **Responsive by design**: it measures the terminal width and, when the content won't fit on one line, splits into multiple complete rounded pills stacked on separate lines, never cutting a segment in half or losing a cap. On a tight terminal the effort label, the token count, and the bar shorten gracefully before anything overflows. Holds down to ~20 columns.
@@ -92,7 +92,7 @@ On a wide terminal the whole status line is a single pill; when it doesn't fit, 
 | **Limits** | `5h 84% ↻1h12  7d 31%` | The account's 5-hour and 7-day usage from Claude Code's `rate_limits`: green under 55%, yellow from 55%, orange from 80%, red from 90%. From 80% up, `↻` shows the time until that window resets |
 | **Version** | `2.1.263` | Claude Code's own version from the payload. Green = latest on npm, yellow = a patch behind, red = a minor or major behind. Clickable: opens the GitHub release |
 | **Status** | `●` or `● API,Code` | status.claude.com indicator. Green when all systems are operational; otherwise the incident color plus the affected components. Clickable: opens the status page |
-| **Effort** | `low` / `medium` / `high` / `xhigh` / `max` / `ultra` | Colored by level so you can read your reasoning budget without squinting. `ultra` is ultracode |
+| **Effort** | gauge needle low / middle / end | One glyph, coloured by level (gold, green, blue, purple, magenta, cyan), so you read your reasoning budget without a word. `ultra` is ultracode |
 | **Thinking lamp** | 💡 glyph | Shown in gold only when thinking is enabled |
 | **Fast bolt** | bolt glyph | Shown when fast mode is on |
 | **Project** | Folder, worktree root, or session name | Falls back to the current directory's basename |
