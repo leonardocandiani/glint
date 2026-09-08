@@ -1,6 +1,12 @@
+<!-- readme-padrao:header -->
 <!-- Banner -->
 <div align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:1a1a2e,100:00d9ff&height=200&section=header&text=glint&fontSize=54&fontColor=ffffff&animation=fadeIn&fontAlignY=36&desc=A%20liquid-glass%20status%20line%20for%20Claude%20Code&descAlignY=58&descSize=16" alt="glint" width="100%" />
+</div>
+
+<!-- Typing -->
+<div align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=21&duration=2800&pause=900&color=00d9ff&center=true&vCenter=true&width=840&lines=A+liquid-glass+status+line+for+Claude+Code;Model%2C+effort%2C+context+pressure+and+git+state+at+a+glance;One+jq+call%2C+one+git+call%2C+about+20ms+per+draw;Rounded+pill%2C+per-character+gradient%2C+no+banding" alt="A liquid-glass status line for Claude Code" />
 </div>
 
 <div align="center">
@@ -19,18 +25,37 @@
   </p>
 
   <p>
-  <a href="#features">Features</a> •
-  <a href="#preview-anatomy">Preview / Anatomy</a> •
-  <a href="#install">Install</a> •
-  <a href="#configuration">Configuration</a> •
-  <a href="#how-it-works">How it works</a> •
-  <a href="#requirements">Requirements</a> •
-  <a href="#customization">Customization</a> •
-  <a href="#license">License</a>
+    <a href="#features">Features</a> •
+    <a href="#preview-anatomy">Preview / Anatomy</a> •
+    <a href="#install">Install</a> •
+    <a href="#configuration">Configuration</a> •
+    <a href="#how-it-works">How it works</a> •
+    <a href="#requirements">Requirements</a> •
+    <a href="#customization">Customization</a> •
+    <a href="#license">License</a>
   </p>
 </div>
 
 <br>
+
+> **glint** replaces the default Claude Code status line with a single glass pill: bright rim, dark body, the model name read straight from the session, an effort color, a context bar that can track auto-compaction, and your branch with a dirty counter.
+
+> Not affiliated with or endorsed by Anthropic. "Claude" and "Claude Code" are Anthropic trademarks.
+
+## What it is
+
+```yaml
+product:  status line for the Claude Code CLI
+shows:    model · effort · thinking lamp · project · branch + dirty count · context bar and %
+look:     Powerline caps, per-character RGB gradient, responsive stacking on narrow terminals
+context:  tracks CLAUDE_CODE_AUTO_COMPACT_WINDOW when set, model ceiling otherwise
+speed:    one jq pass, one git pass, ~20ms per draw
+install:  curl -fsSL .../install.sh | zsh (backs up what it replaces)
+requires: zsh, jq, a Nerd Font with Powerline glyphs
+license:  MIT
+```
+
+<!-- /readme-padrao:header -->
 
 ## Features
 
@@ -173,12 +198,14 @@ Built by **Leonardo Candiani** ([@leonardocandiani](https://github.com/leonardoc
 
 [MIT](LICENSE) © Leonardo Candiani
 
+<!-- readme-padrao:footer -->
 <br>
 
 ---
 
 <div align="center">
   <p><strong>Built by <a href="https://github.com/leonardocandiani">Leonardo Candiani</a></strong> · More projects at <a href="https://github.com/leonardocandiani?tab=repositories">github.com/leonardocandiani</a></p>
+  <p>Leonardo Candiani builds AI agents that talk, decide and close deals. Cofounder of SixQuasar, operating Proteauto, SegSmart and IACall end to end.</p>
   <a href="https://leonardocandiani.com.br">
     <img src="https://img.shields.io/badge/-Website-0d1117?style=for-the-badge&logo=safari&logoColor=00d9ff" alt="Website" />
   </a>
@@ -198,3 +225,4 @@ Built by **Leonardo Candiani** ([@leonardocandiani](https://github.com/leonardoc
 <div align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=0:00d9ff,50:1a1a2e,100:0d1117&height=120&section=footer&text=Thanks%20for%20stopping%20by&fontSize=18&fontColor=ffffff&fontAlignY=72" alt="Thanks for stopping by" width="100%" />
 </div>
+<!-- /readme-padrao:footer -->

@@ -1,0 +1,40 @@
+{
+  "name": "glint",
+  "desc": "A liquid-glass status line for Claude Code",
+  "typing": [
+    "A liquid-glass status line for Claude Code",
+    "Model, effort, context pressure and git state at a glance",
+    "One jq call, one git call, about 20ms per draw",
+    "Rounded pill, per-character gradient, no banding"
+  ],
+  "hero": [
+    {
+      "src": "preview.png",
+      "alt": "glint preview",
+      "width": 820
+    }
+  ],
+  "tagline": "One rounded pill on your terminal's dark background: model, effort, context pressure and git state at a glance, drawn in about 20ms.",
+  "badges": [
+    "license",
+    "claude",
+    {
+      "label": "shell",
+      "msg": "zsh",
+      "logo": "zsh"
+    },
+    "prs"
+  ],
+  "pitch": "**glint** replaces the default Claude Code status line with a single glass pill: bright rim, dark body, the model name read straight from the session, an effort color, a context bar that can track auto-compaction, and your branch with a dirty counter.",
+  "notice": "Not affiliated with or endorsed by Anthropic. \"Claude\" and \"Claude Code\" are Anthropic trademarks.",
+  "what": {
+    "product": "status line for the Claude Code CLI",
+    "shows": "model · effort · thinking lamp · project · branch + dirty count · context bar and %",
+    "look": "Powerline caps, per-character RGB gradient, responsive stacking on narrow terminals",
+    "context": "tracks CLAUDE_CODE_AUTO_COMPACT_WINDOW when set, model ceiling otherwise",
+    "speed": "one jq pass, one git pass, ~20ms per draw",
+    "install": "curl -fsSL .../install.sh | zsh (backs up what it replaces)",
+    "requires": "zsh, jq, a Nerd Font with Powerline glyphs",
+    "license": "MIT"
+  }
+}
