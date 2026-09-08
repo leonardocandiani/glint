@@ -479,8 +479,9 @@ reserva_janela() {  # <pct> <resets_at> <win_s> [1=mistura ritmo recente] -> REP
 }
 reserva_janela "$rl5" "$r5" 18000 1; res5="$REPLY"
 reserva_janela "$rl7" "$r7" 604800; res7="$REPLY"
-reserva=""
-for v in "$res5" "$res7"; do [ -n "$v" ] && { [ -z "$reserva" ] || [ "$v" -lt "$reserva" ]; } && reserva=$v; done
+reserva=""; risco=""
+if [ -n "$res5" ]; then reserva=$res5; risco=5h; fi
+if [ -n "$res7" ] && { [ -z "$reserva" ] || [ "$res7" -lt "$reserva" ]; }; then reserva=$res7; risco=7d; fi
 GAUGE=""; GAUGE_C=""
 if [ -n "$reserva" ]; then
   if   [ $reserva -ge 25 ]; then GAUGE="$GAUGE_SLOW"; GAUGE_C="\033[38;2;48;215;88m"
@@ -489,10 +490,14 @@ if [ -n "$reserva" ]; then
 fi
 # Uma janela: "5h 84% ↻1h12". O reset aparece de 80% pra cima ou quando a
 # reserva daquela janela e negativa (vai estourar antes de voltar).
+# O rotulo da janela em risco (a que define o velocimetro, quando ele sai do
+# verde) sai na cor do ponteiro, em negrito: e assim que se sabe qual das duas.
 push_window() {  # <label> <pct> <resets_at> <reserva>
   [[ "$2" = <-> ]] || return 0
   rl_color "$2"; local c="$REPLY"
-  _push "$C_SECOND" " $1 "; _push "$c" "$2%"
+  if [ "$1" = "$risco" ] && [ -n "$reserva" ] && [ "$reserva" -lt 25 ]; then _push "${GAUGE_C}${BOLD}" " $1 "; _push "$NB" ""
+  else _push "$C_SECOND" " $1 "; fi
+  _push "$c" "$2%"
   if [[ "$3" = <-> ]] && { [ "$2" -ge 80 ] || { [ -n "$4" ] && [ "$4" -lt 0 ]; }; }; then
     fmt_until "$3"; _push "$c" " ↻${REPLY}"
   fi
