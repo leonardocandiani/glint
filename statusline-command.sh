@@ -509,14 +509,16 @@ build_acct() {  # <1=com limites | 0=so conta e versao>
   cells_ch=(); cells_fg=(); _ptext=""
   local first=1
   if [ -n "$account" ]; then
-    _push "$C_MARK" "${acct_mark} "
-    _push "${C_PRIMARY}${BOLD}" "$account"
+    # So a marca (① primaria, ② reserva): o nome da conta vive em `claude-account status`.
+    # Espaco duplo depois de glifo largo: ①, velocimetro e tag ocupam mais que a
+    # celula em alguns terminais e engolem o espaco seguinte.
+    _push "${C_MARK}${BOLD}" "${acct_mark} "
     _push "$NB" ""
     first=0
     if [ "$1" = "1" ]; then
       if [ -n "$GAUGE" ]; then
         _sep
-        if [ "$reserva" -ge 0 ]; then _push "$GAUGE_C" "${GAUGE} +${reserva}%"; else _push "$GAUGE_C" "${GAUGE} −${reserva#-}%"; fi
+        if [ "$reserva" -ge 0 ]; then _push "$GAUGE_C" "${GAUGE}  +${reserva}%"; else _push "$GAUGE_C" "${GAUGE}  −${reserva#-}%"; fi
       fi
       [[ "$rl5" = <-> ]] && { _sep; push_window 5h "$rl5" "$r5" "$res5"; }
       [[ "$rl7" = <-> ]] && { _sep; push_window 7d "$rl7" "$r7" "$res7"; }
@@ -525,7 +527,7 @@ build_acct() {  # <1=com limites | 0=so conta e versao>
   if [ -n "$cc_version" ]; then
     [ $first -eq 0 ] && _sep
     ver_start=$(( ${#cells_ch} + 1 ))
-    _push "$C_SECOND" "${ICON_TAG} "
+    _push "$C_SECOND" "${ICON_TAG}  "
     _push "${C_VER}${BOLD}" "$cc_version"
     _push "$NB" ""
     if [ -n "$ver_url" ]; then
