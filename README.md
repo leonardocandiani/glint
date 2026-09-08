@@ -9,7 +9,7 @@
   <img src="preview.png" alt="glint preview" width="820" />
   <br><br>
 
-  <p><strong>One rounded pill on your terminal's dark background: model, effort, context pressure and git state at a glance, drawn in about 20ms.</strong></p>
+  <p><strong>One rounded pill on your terminal's dark background: model, effort, context pressure, git state, which Claude account you are on and how much of it is left, version freshness and Claude's own status, at a glance.</strong></p>
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-00d9ff?style=for-the-badge" alt="License: MIT" /></a>
@@ -43,21 +43,29 @@
 - 🌿 **Git and worktree aware**: branch name, a dirty counter for uncommitted changes, and the worktree name when you're inside one.
 - 📐 **Responsive by design**: it measures the terminal width and, when the content won't fit on one line, splits into multiple complete rounded pills stacked on separate lines, never cutting a segment in half or losing a cap. On a tight terminal the effort label, the token count, and the bar shorten gracefully before anything overflows. Holds down to ~20 columns.
 - 🔗 **Optional clickable links** (OSC 8): click the branch to open the repo on GitHub, click the project to open its folder in your file manager. On by default; terminals without hyperlink support just ignore the sequence, and Terminal.app is skipped outright. Set `GLINT_NO_LINKS=1` to turn them off.
-- ⚡ **Built for speed**: one `jq` pass, one `git` pass. Around 20ms per draw.
+- 👤 **Account segment**: which Claude account this session is actually using, marked `1º` (blue) when it is the primary of your policy and `2º` (amber) when it is the fallback, plus the account's 5-hour and 7-day usage in the same green-to-red scale. Above 80% the window shows when it resets (`↻1h12`, `↻2d 4h`). Needs [claude-account-manager](https://github.com/ricardo-landim/claude-account-manager)-style profiles in `~/.config/claude-account`; without them the segment simply shows nothing about accounts.
+- 🏷️ **Version with freshness color**: the running Claude Code version, green when it is the latest on npm, yellow one patch behind, red a minor or major behind. Click it to open the GitHub release (the latest one when you are behind). The npm check runs in the background and is cached for 30 minutes; the status line never waits for the network.
+- 🟢 **Claude status dot** from [status.claude.com](https://status.claude.com): green when everything is operational, yellow / orange / red following the incident indicator, and the affected components spelled out (`● API,Code`) when something is degraded. Click it to open the status page. Cached for 5 minutes, refreshed in the background.
+- 🔤 **ASCII mode** (`GLINT_ASCII=1`) for fonts without Nerd Font glyphs: straight pill, no icons, plain markers.
+- ⚡ **Built for speed**: one `jq` pass, one `git` pass. Around 20ms per draw (about 80ms with the account segment, which also reads two small cache files).
 
 ## Preview / Anatomy
 
 On a wide terminal the whole status line is a single pill; when it doesn't fit, it breaks into stacked pills (see [Responsive line breaking](#how-it-works)). Reading left to right:
 
 ```
-   Opus 4.8  xhigh  💡    my-project    main •3    ━━━━●───  62%  124K/200K
-   └─ model  └─ effort  └─ thinking  └─ project  └─ branch + dirty  └─ context: bar, %, tokens
+   Opus 4.8  xhigh  💡    my-project    main •3    ━━━━●───  62%  124K/200K    1º work 5h 84% ↻1h12 7d 31%   2.1.263  ●
+   └─ model  └─ effort  └─ thinking  └─ project  └─ branch + dirty  └─ context: bar, %, tokens  └─ account, limits  └─ version, status
 ```
 
 | Part | What it shows | Detail |
 | --- | --- | --- |
 | **Rounded caps** | The pill's left and right ends | Powerline glyphs `U+E0B6` / `U+E0B4`, tinted to match the bright edge of the gradient so the pill reads as one coherent surface |
 | **Model** | `Opus 4.8`, `Sonnet 4.6`, etc. | From `model.display_name`, with a parse of `model.id` as fallback. Rendered in Apple blue, the single accent color |
+| **Account** | `1º work`, `2º personal` | The account this session runs on, resolved from `CLAUDE_CODE_OAUTH_TOKEN` (matched to your `claude-account` profiles by SHA-256 fingerprint, cached) or the native login otherwise. `1º` in blue means the primary of `~/.config/claude-account/policy.json`, `2º` in amber means the fallback |
+| **Limits** | `5h 84% ↻1h12  7d 31%` | The account's 5-hour and 7-day usage from Claude Code's `rate_limits`, colored like the context bar. From 80% up, `↻` shows the time until that window resets |
+| **Version** | `2.1.263` | Claude Code's own version from the payload. Green = latest on npm, yellow = a patch behind, red = a minor or major behind. Clickable: opens the GitHub release |
+| **Status** | `●` or `● API,Code` | status.claude.com indicator. Green when all systems are operational; otherwise the incident color plus the affected components. Clickable: opens the status page |
 | **Effort** | `low` / `medium` / `high` / `xhigh` / `max` / `ultra` | Colored by level so you can read your reasoning budget without squinting. `ultra` is ultracode |
 | **Thinking lamp** | 💡 glyph | Shown in gold only when thinking is enabled |
 | **Fast bolt** | bolt glyph | Shown when fast mode is on |
@@ -109,8 +117,12 @@ Tuning lives in two places: one env var for behavior, and a handful of constants
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | `env` in `settings.json` (or shell) | unset → model context size | **Opt-in.** The token window the bar measures against. Set it to your real auto-compact threshold to see how close you are to a compaction. Heads up: this is a genuine Claude Code setting that also controls when auto-compact actually fires, not just this display, so only set it if you want that behavior |
 | `refreshInterval` | `statusLine` block in `settings.json` | unset | Re-runs the script every N seconds (minimum `1`) on top of the event-driven updates. Set it so the pill re-flows shortly after you resize the terminal, since a resize isn't an update trigger on its own |
 | `GLINT_NO_LINKS` | `env` or shell | unset | Set to `1` to disable the OSC 8 clickable links and render everything as plain text |
-| `GLINT_FLAT_BG` | `env` or shell | unset | Set to `1` to draw the pill on a single solid background instead of the gradient. Use it when Claude Code's own color-depth detection downgrades the status line to 256 colors in your terminal (see [claude-code#59737](https://github.com/anthropics/claude-code/issues/59737)), which quantizes the gradient into blotchy bands. Auto-enabled under Zentty (detected by the `ZENTTY_*` env vars it injects), so you don't need to set it there |
-| `GLINT_FORCE_GRADIENT` | `env` or shell | unset | Set to `1` to disable the Zentty auto-flat and force the full gradient. Useful to re-test after a Claude Code or Zentty update lands a fix |
+| `GLINT_ASCII` | `env` or shell | unset | Set to `1` for fonts without Nerd Font glyphs: straight pill, no icons, `1º`/`2º` and `v` as plain text |
+| `~/.config/claude-account/` | files | absent | Profiles and `policy.json` from claude-account-manager. When present, the account segment shows which profile the session uses and whether it is the policy's primary or fallback |
+| `~/.claude/.cache/claude-latest-version` | cache file | auto | Latest npm version, refreshed in the background every 30 minutes. Delete it to force a refresh |
+| `~/.claude/.cache/claude-status` | cache file | auto | status.claude.com indicator and degraded components, refreshed every 5 minutes |
+| `GLINT_FLAT_BG` | `env` or shell | unset | Set to `1` to draw the pill on a single solid background instead of the gradient. Use it when Claude Code's own color-depth detection downgrades the status line to 256 colors in your terminal (see [claude-code#59737](https://github.com/anthropics/claude-code/issues/59737)), which quantizes the gradient into blotchy bands. Automatic outside the truecolor allowlist (Ghostty, iTerm2, WezTerm, kitty, Alacritty, VS Code), so you rarely need to set it |
+| `GLINT_FORCE_GRADIENT` | `env` or shell | unset | Set to `1` to force the full gradient on a terminal outside the allowlist. Useful to test a new terminal or re-test after a Claude Code update |
 | `EDGE_PEAK` | top of `statusline-command.sh` | `680` | How much the pill's edges brighten, on a `0..1000` scale. Higher means a stronger rim light; the center always sits at the base color |
 | `GLASS_BR` / `GLASS_BG` / `GLASS_BB` | top of script | `50 / 50 / 58` | RGB of the glass body (the dark center) |
 | `GLASS_SR` / `GLASS_SG` / `GLASS_SB` | top of script | `96 / 100 / 118` | RGB of the lit edges (the cool blue-gray rim) |
@@ -131,7 +143,9 @@ Tuning lives in two places: one env var for behavior, and a handful of constants
 
 **Clickable links.** When enabled, the branch is wrapped in an OSC 8 hyperlink to the repo on GitHub, parsed from the `origin` remote, and the project name links to its folder through a `file://` URL. The escape is emitted once per block, wrapping the cells, so it never repeats per character or disturbs the gradient. Terminals that don't support OSC 8 ignore it; Terminal.app is skipped outright.
 
-**Solid-background fallback.** The gradient leans on dozens of subtly different truecolor backgrounds per row, so it only survives if every link in the chain keeps 24-bit color. The script's output is parsed and re-rendered by Claude Code itself, and Claude Code picks a color depth per terminal: when it doesn't recognize the terminal it can downgrade the whole status line to 256 colors even with `COLORTERM=truecolor` set (see [claude-code#59737](https://github.com/anthropics/claude-code/issues/59737); the same mechanism hits `foot` and tmux users). Quantized to 256 colors, thirty close gray-blue tones collapse into three or four palette entries and the glass turns into blotchy bands. `GLINT_FLAT_BG=1` sidesteps this with one solid background (the glass center color, caps included), which survives any quantization. Zentty triggers the fallback automatically, detected via the `ZENTTY_*` env vars it injects (the terminal itself renders truecolor fine; it's the Claude Code re-render that downgrades there). Set `GLINT_FORCE_GRADIENT=1` to override the auto-detection and re-test after a fix lands.
+**Account, version and status without waiting.** The account segment never touches the network: it reads `rate_limits` from the payload and resolves the profile name locally (token fingerprint against the Keychain, cached after the first hit, so the Keychain is not opened every second). The version and status checks do need the network, so they run detached in the background (`&!`) with a lock file and write a small cache; each draw only reads the cache, which is why a stale value can show for up to 30 minutes (version) or 5 minutes (status). Clicks are OSC 8 links wrapped around each of those segments, like the branch and project links.
+
+**Solid-background fallback.** The gradient leans on dozens of subtly different truecolor backgrounds per row, so it only survives if every link in the chain keeps 24-bit color. The script's output is parsed and re-rendered by Claude Code itself, and Claude Code picks a color depth per terminal: when it doesn't recognize the terminal it can downgrade the whole status line to 256 colors even with `COLORTERM=truecolor` set (see [claude-code#59737](https://github.com/anthropics/claude-code/issues/59737); the same mechanism hits `foot` and tmux users). Quantized to 256 colors, thirty close gray-blue tones collapse into three or four palette entries and the glass turns into blotchy bands. `GLINT_FLAT_BG=1` sidesteps this with one solid background (the glass center color, caps included), which survives any quantization. The gradient is only enabled on terminals where Claude Code is known to keep truecolor (Ghostty, iTerm2, WezTerm, kitty, Alacritty, VS Code); everywhere else (Zentty, Orca, tmux, Terminal.app, anything unknown) the solid background is automatic. Set `GLINT_FORCE_GRADIENT=1` to override the allowlist and test a new terminal.
 
 ## Requirements
 

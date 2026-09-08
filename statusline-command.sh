@@ -35,6 +35,16 @@ ICON_WORKTREE=$''
 ICON_CTX=$''
 ICON_THINK=$''
 ICON_FAST=$''
+ICON_USER=$''
+ICON_TAG=$''
+
+# GLINT_ASCII=1: pra fonte sem glyphs Nerd Font (caps e ícones virariam
+# caixas/tofu). Pílula fica reta e os ícones saem; só texto simples.
+if [ -n "${GLINT_ASCII:-}" ]; then
+  CAP_L="" CAP_R=""
+  ICON_FOLDER="" ICON_GIT="" ICON_WORKTREE="" ICON_CTX=""
+  ICON_THINK="*" ICON_FAST="»" ICON_USER="@" ICON_TAG="v"
+fi
 
 # === HYPERLINKS (OSC 8) ===
 # O clique abre uma URL (nao aciona o Claude Code: statusline e um caminho so).
@@ -60,7 +70,12 @@ eval $(echo "$input" | jq -r '
   "cache_creation=" + ((.context_window.current_usage.cache_creation_input_tokens // 0) | tostring) + "\n" +
   "cache_read=" + ((.context_window.current_usage.cache_read_input_tokens // 0) | tostring) + "\n" +
   "context_size=" + ((.context_window.context_window_size // 200000) | tostring) + "\n" +
-  "used_pct=" + ((.context_window.used_percentage // 0) | tostring)
+  "used_pct=" + ((.context_window.used_percentage // 0) | tostring) + "\n" +
+  "cc_version=" + ((.version // "") | @sh) + "\n" +
+  "rl5=" + ((.rate_limits.five_hour.used_percentage // null) | if type=="number" then (round|tostring) else "" end | @sh) + "\n" +
+  "rl7=" + ((.rate_limits.seven_day.used_percentage // null) | if type=="number" then (round|tostring) else "" end | @sh) + "\n" +
+  "r5=" + ((.rate_limits.five_hour.resets_at // "") | tostring | @sh) + "\n" +
+  "r7=" + ((.rate_limits.seven_day.resets_at // "") | tostring | @sh)
 ')
 
 # === MODELO (display_name ja vem correto e versionado) ===
@@ -187,18 +202,23 @@ EDGE_PEAK=680  # quanto as bordas clareiam (0..1000); o centro fica na cor base
 sep="   "      # separador entre blocos na mesma pilula
 
 # GLINT_FLAT_BG=1: troca o gradiente por fundo sólido (cor única sobrevive a
-# qualquer quantização de cor). Auto-ativa sob Zentty: o Claude Code rebaixa a
-# UI pra 256 cores nas sessões dentro dele (a detecção de capability não
-# reconhece o terminal; ver anthropics/claude-code#59737) e o gradiente
-# truecolor quantizado vira bandas. O renderer do Zentty em si é truecolor OK
-# (no shell o gradiente sai liso); o rebaixamento é na re-render do CC.
-# GLINT_FORCE_GRADIENT=1 desliga o auto-flat pra testar quando houver fix.
-glass_flat=0
-if [ -n "${GLINT_FLAT_BG:-}" ]; then
-  glass_flat=1
-elif [ -z "${GLINT_FORCE_GRADIENT:-}" ] && [ -n "${ZENTTY_INSTANCE_ID:-}${ZENTTY_PANE_ID:-}${ZENTTY_SHELL_INTEGRATION:-}" ]; then
-  glass_flat=1
-fi
+# qualquer quantização de cor). O gradiente só liga em terminal onde o Claude
+# Code comprovadamente mantém truecolor (allowlist abaixo). Em qualquer outro
+# (Zentty, Orca, tmux/screen, Apple_Terminal, terminais futuros) o CC rebaixa
+# a statusline pra 256 cores (anthropics/claude-code#59737) e o gradiente
+# quantizado vira bandas/borrões: nesses, fundo sólido automático.
+# GLINT_FORCE_GRADIENT=1 força o gradiente pra testar um terminal novo.
+glass_flat=1
+case "${TERM_PROGRAM:-}:${LC_TERMINAL:-}:${TERM:-}" in
+  ghostty:*|*:xterm-ghostty)   glass_flat=0 ;;  # Ghostty
+  iTerm.app:*|*:iTerm2:*)      glass_flat=0 ;;  # iTerm2 (local e via ssh)
+  WezTerm:*)                   glass_flat=0 ;;  # WezTerm
+  *:xterm-kitty)               glass_flat=0 ;;  # kitty
+  Alacritty:*|*:alacritty)     glass_flat=0 ;;  # Alacritty
+  vscode:*)                    glass_flat=0 ;;  # VS Code integrado
+esac
+[ -n "${GLINT_FORCE_GRADIENT:-}" ] && glass_flat=0
+[ -n "${GLINT_FLAT_BG:-}" ] && glass_flat=1
 
 # Largura util: o Claude Code exporta COLUMNS pro statusline; tput cols e o fallback;
 # 80 se nada responder. Cada pilula gasta 2 caps + padding (2 de cada lado) + folga.
@@ -283,9 +303,181 @@ build_ctx 8 1
 [ ${(m)#_ptext} -gt $cap ] && build_ctx 4 0
 g4_ch=("${cells_ch[@]}"); g4_fg=("${cells_fg[@]}"); g4_w=${(m)#_ptext}
 
+# --- Bloco 5: conta ativa + limites da conta + versao do Claude Code ---
+# Conta: a que ESTA sessao usa de fato (nao o perfil marcado como ativo, que pode
+# ter trocado depois que a sessao nasceu). Se o processo carrega
+# CLAUDE_CODE_OAUTH_TOKEN, e um perfil de setup-token: casa o fingerprint do token
+# com os perfis do claude-account (cache em disco pra nao abrir o Keychain a cada
+# segundo). Sem a variavel, e o login nativo.
+CA_DIR="$HOME/.config/claude-account"
+CACHE_DIR="$HOME/.claude/.cache"; mkdir -p "$CACHE_DIR" 2>/dev/null
+account=""
+if [ -d "$CA_DIR/profiles" ]; then
+  if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+    tok_fp=$(printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | shasum -a 256 | cut -c1-12)
+    fp_cache="$CACHE_DIR/statusline-account-fp"
+    account=$(grep "^${tok_fp} " "$fp_cache" 2>/dev/null | head -1 | cut -d' ' -f2)
+    if [ -z "$account" ]; then
+      for pf in "$CA_DIR"/profiles/*.json; do
+        [ -f "$pf" ] || continue
+        [ "$(jq -r '.type' "$pf")" = "oauth_token" ] || continue
+        svc=$(jq -r '.keychainService' "$pf")
+        v=$(security find-generic-password -a "$USER" -s "$svc" -w 2>/dev/null) || continue
+        if [ "$(printf '%s' "$v" | shasum -a 256 | cut -c1-12)" = "$tok_fp" ]; then
+          account=$(jq -r '.name' "$pf")
+          printf '%s %s\n' "$tok_fp" "$account" >> "$fp_cache"
+          break
+        fi
+      done
+      unset v
+      [ -z "$account" ] && account="token?"
+    fi
+  else
+    for pf in "$CA_DIR"/profiles/*.json; do
+      [ -f "$pf" ] || continue
+      [ "$(jq -r '.type' "$pf")" = "native_archive" ] && { account=$(jq -r '.name' "$pf"); break; }
+    done
+    [ -z "$account" ] && account="nativo"
+  fi
+fi
+
+# Versao: a que roda (vem no JSON) contra a mais nova publicada no npm, lida de
+# um cache de 30 min que e renovado em background (a statusline nunca espera rede).
+# Verde = na ultima; amarelo = patch atras; vermelho = minor/major atras.
+latest_file="$CACHE_DIR/claude-latest-version"
+latest=""
+if [ -f "$latest_file" ]; then
+  read -r latest latest_ts < "$latest_file"
+  [[ "$latest_ts" = <-> ]] || latest_ts=0
+fi
+now_ts=$(date +%s)
+if [ -z "$latest" ] || [ $((now_ts - ${latest_ts:-0})) -gt 1800 ] && [ ! -f "$latest_file.lock" ]; then
+  ( touch "$latest_file.lock"
+    lv=$(curl -s --max-time 8 https://registry.npmjs.org/@anthropic-ai/claude-code/latest | jq -r '.version // empty' 2>/dev/null)
+    [[ "$lv" = <->.<->.<-> ]] && printf '%s %s\n' "$lv" "$(date +%s)" > "$latest_file"
+    rm -f "$latest_file.lock" ) >/dev/null 2>&1 </dev/null &!
+fi
+# Status do Claude (status.claude.com, API do statuspage): indicador geral + os
+# componentes que importam aqui (API e Claude Code). Cache de 5 min renovado em
+# background; a statusline nunca espera rede.
+status_file="$CACHE_DIR/claude-status"
+st_ind=""; st_txt=""; st_ts=0
+if [ -f "$status_file" ]; then
+  IFS='|' read -r st_ind st_txt st_ts < "$status_file"
+  [[ "$st_ts" = <-> ]] || st_ts=0
+fi
+if [ $((now_ts - st_ts)) -gt 300 ] && [ ! -f "$status_file.lock" ]; then
+  ( touch "$status_file.lock"
+    ind=$(curl -s --max-time 8 https://status.claude.com/api/v2/status.json | jq -r '.status.indicator // empty' 2>/dev/null)
+    bad=$(curl -s --max-time 8 https://status.claude.com/api/v2/components.json | jq -r '[.components[] | select(.status != "operational") | (.name | sub(" \\(.*"; "") | sub("^Claude "; ""))] | join(",")' 2>/dev/null)
+    [ -n "$ind" ] && printf '%s|%s|%s\n' "$ind" "$bad" "$(date +%s)" > "$status_file"
+    rm -f "$status_file.lock" ) >/dev/null 2>&1 </dev/null &!
+fi
+case "$st_ind" in
+  none)     C_ST="\033[38;2;48;215;88m" ;;
+  minor)    C_ST="\033[38;2;255;214;10m" ;;
+  major)    C_ST="\033[38;2;255;159;10m" ;;
+  critical) C_ST="\033[38;2;255;69;58m" ;;
+  *)        C_ST="$C_TERT" ;;
+esac
+st_url=""; [ $osc8 -eq 1 ] && st_url="https://status.claude.com"
+
+C_VER="$C_SECOND"; ver_url=""
+if [ -n "$cc_version" ]; then
+  if [ -n "$latest" ]; then
+    if [ "$cc_version" = "$latest" ]; then
+      C_VER="\033[38;2;48;215;88m"                       # verde: na ultima
+      ver_url="https://github.com/anthropics/claude-code/releases/tag/v${cc_version}"
+    else
+      cur_mm="${cc_version%.*}"; lat_mm="${latest%.*}"
+      [ "$cur_mm" = "$lat_mm" ] && C_VER="\033[38;2;255;214;10m" || C_VER="\033[38;2;255;69;58m"
+      ver_url="https://github.com/anthropics/claude-code/releases/tag/v${latest}"   # o que falta pegar
+    fi
+  else
+    ver_url="https://github.com/anthropics/claude-code/releases/tag/v${cc_version}"
+  fi
+fi
+[ $osc8 -eq 1 ] || ver_url=""
+
+rl_color() {  # <pct> -> REPLY cor no mesmo semaforo do contexto
+  local p=${1:-0}
+  if   [ "$p" -ge 90 ]; then REPLY="\033[38;2;255;69;58m"
+  elif [ "$p" -ge 75 ]; then REPLY="\033[38;2;255;159;10m"
+  elif [ "$p" -ge 50 ]; then REPLY="\033[38;2;255;214;10m"
+  else REPLY="\033[38;2;48;215;88m"; fi
+}
+# Primaria ou secundaria: compara a conta da sessao com a preferida da politica.
+# Sinal unico e discreto no lugar do icone: "1º" (azul) na primaria, "2º" (ambar)
+# quando a sessao esta na conta de fallback.
+acct_mark="$ICON_USER"; C_MARK="$C_SECOND"
+preferred=$(jq -r '.preferred // empty' "$CA_DIR/policy.json" 2>/dev/null)
+if [ -n "$account" ] && [ -n "$preferred" ]; then
+  if [ "$account" = "$preferred" ]; then
+    acct_mark="1º"; C_MARK="$C_ACCENT"
+  else
+    acct_mark="2º"; C_MARK="$C_DIRTY"
+  fi
+fi
+# Tempo ate o reset de uma janela (epoch -> "45m", "1h12", "2d 5h"), em REPLY.
+fmt_until() {
+  local left=$(( ${1:-0} - now_ts ))
+  if [ $left -le 0 ]; then REPLY="agora"; return; fi
+  local d=$(( left / 86400 )) h=$(( left % 86400 / 3600 )) m=$(( left % 3600 / 60 ))
+  if   [ $d -gt 0 ]; then REPLY="${d}d ${h}h"
+  elif [ $h -gt 0 ]; then REPLY="${h}h$(printf '%02d' $m)"
+  else REPLY="${m}m"; fi
+}
+# Uma janela: "5h 84% ↻1h12" (o reset so aparece de 80% pra cima, quando importa).
+push_window() {  # <label> <pct> <resets_at>
+  [[ "$2" = <-> ]] || return 0
+  rl_color "$2"; local c="$REPLY"
+  _push "$C_SECOND" " $1 "; _push "$c" "$2%"
+  if [ "$2" -ge 80 ] && [[ "$3" = <-> ]]; then fmt_until "$3"; _push "$c" " ↻${REPLY}"; fi
+}
+build_acct() {  # <1=com limites | 0=so conta e versao>
+  cells_ch=(); cells_fg=(); _ptext=""
+  local first=1
+  if [ -n "$account" ]; then
+    _push "$C_MARK" "${acct_mark} "
+    _push "${C_PRIMARY}${BOLD}" "$account"
+    _push "$NB" ""
+    first=0
+    if [ "$1" = "1" ]; then
+      push_window 5h "$rl5" "$r5"
+      push_window 7d "$rl7" "$r7"
+    fi
+  fi
+  if [ -n "$cc_version" ]; then
+    [ $first -eq 0 ] && _push "$C_SECOND" "  "
+    ver_start=$(( ${#cells_ch} + 1 ))
+    _push "$C_SECOND" "${ICON_TAG} "
+    _push "${C_VER}${BOLD}" "$cc_version"
+    _push "$NB" ""
+    if [ -n "$ver_url" ]; then
+      cells_fg[$ver_start]="\033]8;;${ver_url}\a${cells_fg[$ver_start]}"
+      cells_ch[-1]="${cells_ch[-1]}\033]8;;\a"
+    fi
+  fi
+  # Status do Claude: um ponto na cor do indicador; degradado ganha o nome do
+  # componente afetado. Clique abre status.claude.com.
+  if [ -n "$st_ind" ]; then
+    local st_start=$(( ${#cells_ch} + 1 ))
+    _push "$C_SECOND" "  "
+    _push "$C_ST" "●"
+    [ "$st_ind" != none ] && [ -n "$st_txt" ] && _push "$C_ST" " ${st_txt}"
+    if [ -n "$st_url" ]; then
+      cells_fg[$st_start]="\033]8;;${st_url}\a${cells_fg[$st_start]}"
+      cells_ch[-1]="${cells_ch[-1]}\033]8;;\a"
+    fi
+  fi
+}
+build_acct 1
+[ ${(m)#_ptext} -gt $cap ] && build_acct 0
+g5_ch=("${cells_ch[@]}"); g5_fg=("${cells_fg[@]}"); g5_w=${(m)#_ptext}
+
 # --- Greedy: enche cada pilula ate o limite, abre nova quando o proximo bloco nao cabe ---
 avail=(); vn=""
-for gi in 1 2 3 4; do
+for gi in 1 2 3 4 5; do
   vn="g${gi}_w"; [ "${(P)vn}" -gt 0 ] && avail+=($gi)
 done
 lines=(); cur=""; curw=0
