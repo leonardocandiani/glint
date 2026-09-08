@@ -399,11 +399,13 @@ if [ -n "$cc_version" ]; then
 fi
 [ $osc8 -eq 1 ] || ver_url=""
 
-rl_color() {  # <pct> -> REPLY cor no mesmo semaforo do contexto
+# Escala da conta: verde ate 54%, amarelo de 55, laranja de 80 (quando o reset
+# passa a aparecer), vermelho de 90.
+rl_color() {  # <pct> -> REPLY cor
   local p=${1:-0}
   if   [ "$p" -ge 90 ]; then REPLY="\033[38;2;255;69;58m"
-  elif [ "$p" -ge 75 ]; then REPLY="\033[38;2;255;159;10m"
-  elif [ "$p" -ge 50 ]; then REPLY="\033[38;2;255;214;10m"
+  elif [ "$p" -ge 80 ]; then REPLY="\033[38;2;255;159;10m"
+  elif [ "$p" -ge 55 ]; then REPLY="\033[38;2;255;214;10m"
   else REPLY="\033[38;2;48;215;88m"; fi
 }
 # Primaria ou secundaria: compara a conta da sessao com a preferida da politica.
