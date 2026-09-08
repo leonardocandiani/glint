@@ -445,12 +445,34 @@ fmt_until() {
   elif [ $h -gt 0 ]; then REPLY="${h}h$(printf '%02d' $m)"
   else REPLY="${m}m"; fi
 }
+# Ritmo da janela de 5h: quanto ja gastou contra quanto da janela ja passou.
+# p = uso% / janela decorrida%. Abaixo de 0.7 e folga (pode sentar o dedo);
+# ate 1.1 esta no ritmo que fecha junto com o reset; ate 1.5 forte; acima
+# disso (ou projecao de acabar antes do reset) estoura, com o "em quanto tempo".
+# Janela com menos de 15 min decorridos nao tem ritmo confiavel: "novo".
+pace_5h() {  # <pct> <resets_at> -> REPLY "glyph palavra[ em Xm]" e PACE_C cor
+  local u=$1 reset=$2 win=18000
+  local left=$(( reset - now_ts )); [ $left -lt 0 ] && left=0; [ $left -gt $win ] && left=$win
+  local elapsed=$(( win - left ))
+  PACE_C="$C_SECOND"; REPLY=""
+  if [ $elapsed -lt 900 ]; then REPLY="▁ novo"; return; fi
+  local p10=$(( u * win * 10 / (elapsed * 100) ))   # ritmo x10
+  local eta=0
+  [ "$u" -gt 0 ] && eta=$(( elapsed * 100 / u - elapsed ))
+  if [ "$u" -lt 100 ] && [ "$u" -gt 0 ] && [ $eta -lt $left ]; then
+    fmt_until $(( now_ts + eta )); REPLY="▇ estoura em ${REPLY}"; PACE_C="\033[38;2;255;69;58m"
+  elif [ $p10 -lt 7 ];  then REPLY="▁ folga";  PACE_C="\033[38;2;48;215;88m"
+  elif [ $p10 -lt 11 ]; then REPLY="▃ ritmo";  PACE_C="\033[38;2;255;214;10m"
+  elif [ $p10 -lt 15 ]; then REPLY="▅ forte";  PACE_C="\033[38;2;255;159;10m"
+  else REPLY="▇ estoura"; PACE_C="\033[38;2;255;69;58m"; fi
+}
 # Uma janela: "5h 84% ↻1h12" (o reset so aparece de 80% pra cima, quando importa).
-push_window() {  # <label> <pct> <resets_at>
+push_window() {  # <label> <pct> <resets_at> [1=com ritmo]
   [[ "$2" = <-> ]] || return 0
   rl_color "$2"; local c="$REPLY"
   _push "$C_SECOND" " $1 "; _push "$c" "$2%"
   if [ "$2" -ge 80 ] && [[ "$3" = <-> ]]; then fmt_until "$3"; _push "$c" " ↻${REPLY}"; fi
+  if [ "${4:-0}" = 1 ] && [[ "$3" = <-> ]]; then pace_5h "$2" "$3"; [ -n "$REPLY" ] && _push "$PACE_C" " ${REPLY}"; fi
 }
 build_acct() {  # <1=com limites | 0=so conta e versao>
   cells_ch=(); cells_fg=(); _ptext=""
@@ -461,7 +483,7 @@ build_acct() {  # <1=com limites | 0=so conta e versao>
     _push "$NB" ""
     first=0
     if [ "$1" = "1" ]; then
-      push_window 5h "$rl5" "$r5"
+      push_window 5h "$rl5" "$r5" 1
       push_window 7d "$rl7" "$r7"
     fi
   fi
