@@ -568,11 +568,11 @@ build_acct() {  # <1=com limites | 0=so conta e versao>
     local st_start=$(( ${#cells_ch} + 1 ))
     _push "$C_ST" "●"
     [ "$st_ind" != none ] && [ -n "$st_txt" ] && _push "$C_ST" " ${st_txt}"
-    _push "$C_NET" "  ${ICON_NET}"
     if [ -n "$st_url" ]; then
       cells_fg[$st_start]="\033]8;;${st_url}\a${cells_fg[$st_start]}"
       cells_ch[-1]="${cells_ch[-1]}\033]8;;\a"
     fi
+    _sep; _push "$C_NET" "${ICON_NET}"
   fi
 }
 build_acct 1
