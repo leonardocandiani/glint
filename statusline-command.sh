@@ -445,15 +445,16 @@ fmt_until() {
   elif [ $h -gt 0 ]; then REPLY="${h}h$(printf '%02d' $m)"
   else REPLY="${m}m"; fi
 }
-# Estudo da janela de 5h (modelo do pace do quota-axi), sem palavra:
-#   velocimetro  icone Nerd Font em tres niveis, pela projecao de uso no reset:
-#                lento (verde, sobra 25 pontos ou mais), medio (amarelo, sobra
-#                menos que isso), rapido (vermelho, no ritmo atual estoura antes
-#                do reset, e ai o "↻" com a hora de volta aparece)
-#   reserva      pontos percentuais que ainda dao pra gastar alem do ritmo atual
-# A projecao mistura o ritmo medio da janela com o dos ultimos 15 min (history
-# do measure.json), pra reagir a um pico recente sem ficar nervosa.
-# Janela com menos de 15 min decorridos nao tem ritmo: nada aparece.
+# Estudo de ritmo (modelo do pace do quota-axi), sem palavra. Cada janela (5h e
+# 7d) ganha uma projecao de uso no reset pelo ritmo medio decorrido; a de 5h
+# ainda mistura o ritmo dos ultimos 15 min (history do measure.json) pra reagir
+# a pico recente sem ficar nervosa. A reserva e quantos pontos percentuais ainda
+# dao pra gastar alem do ritmo atual. O velocimetro (icone Nerd Font em tres
+# niveis) mostra a MENOR reserva das duas janelas, porque e a que acaba antes:
+#   lento verde   sobra 25 pontos ou mais
+#   medio amarelo sobra menos que isso
+#   rapido vermelho no ritmo atual estoura antes do reset
+# Janela com menos de 15 min decorridos nao tem ritmo e fica de fora.
 GAUGE_SLOW=$'\U000F0F86'; GAUGE_MED=$'\U000F0F85'; GAUGE_FAST=$'\U000F04C5'
 recent_5h() {  # -> REPLY pontos consumidos nos ultimos 15 min, ou "" sem historico suficiente
   REPLY=""
@@ -462,32 +463,38 @@ recent_5h() {  # -> REPLY pontos consumidos nos ultimos 15 min, ou "" sem histor
     (.history[$a] // []) | map(select(.[0] > ($now - 1500))) |
     if length < 3 then "" else ((.[-1][1] - .[0][1]) | if . < 0 then 0 else . end | tostring) end' "$measure_file" 2>/dev/null)
 }
-pace_5h() {  # <pct> <resets_at> -> GAUGE, GAUGE_C, RESERVA (inteiro ou "")
-  local u=$1 reset=$2 win=18000 left elapsed
+reserva_janela() {  # <pct> <resets_at> <win_s> [1=mistura ritmo recente] -> REPLY reserva ou ""
+  REPLY=""
+  [[ "$1" = <-> ]] && [[ "$2" = <-> ]] || return
+  local u=$1 reset=$2 win=$3 left elapsed proj
   left=$(( reset - now_ts )); [ $left -lt 0 ] && left=0; [ $left -gt $win ] && left=$win
   elapsed=$(( win - left ))
-  RESERVA=""; GAUGE=""; GAUGE_C=""
   [ $elapsed -lt 900 ] && return
-  local proj=$(( u * win / elapsed ))
-  recent_5h
-  if [[ "$REPLY" = <-> ]]; then proj=$(( (proj + u + REPLY * left / 900) / 2 )); fi
-  RESERVA=$(( 100 - proj )); [ $RESERVA -lt -99 ] && RESERVA=-99
-  if   [ $RESERVA -ge 25 ]; then GAUGE="$GAUGE_SLOW"; GAUGE_C="\033[38;2;48;215;88m"
-  elif [ $RESERVA -ge 0 ];  then GAUGE="$GAUGE_MED";  GAUGE_C="\033[38;2;255;214;10m"
-  else                           GAUGE="$GAUGE_FAST"; GAUGE_C="\033[38;2;255;69;58m"; fi
+  proj=$(( u * win / elapsed ))
+  if [ "${4:-0}" = 1 ]; then
+    recent_5h
+    [[ "$REPLY" = <-> ]] && proj=$(( (proj + u + REPLY * left / 900) / 2 ))
+  fi
+  REPLY=$(( 100 - proj )); [ $REPLY -lt -99 ] && REPLY=-99
 }
-# Uma janela: "5h 84% ↻1h12" (o reset aparece de 80% pra cima, ou quando a reserva e negativa).
-push_window() {  # <label> <pct> <resets_at> [1=com estudo de ritmo]
+reserva_janela "$rl5" "$r5" 18000 1; res5="$REPLY"
+reserva_janela "$rl7" "$r7" 604800; res7="$REPLY"
+reserva=""
+for v in "$res5" "$res7"; do [ -n "$v" ] && { [ -z "$reserva" ] || [ "$v" -lt "$reserva" ]; } && reserva=$v; done
+GAUGE=""; GAUGE_C=""
+if [ -n "$reserva" ]; then
+  if   [ $reserva -ge 25 ]; then GAUGE="$GAUGE_SLOW"; GAUGE_C="\033[38;2;48;215;88m"
+  elif [ $reserva -ge 0 ];  then GAUGE="$GAUGE_MED";  GAUGE_C="\033[38;2;255;214;10m"
+  else                          GAUGE="$GAUGE_FAST"; GAUGE_C="\033[38;2;255;69;58m"; fi
+fi
+# Uma janela: "5h 84% ↻1h12". O reset aparece de 80% pra cima ou quando a
+# reserva daquela janela e negativa (vai estourar antes de voltar).
+push_window() {  # <label> <pct> <resets_at> <reserva>
   [[ "$2" = <-> ]] || return 0
   rl_color "$2"; local c="$REPLY"
   _push "$C_SECOND" " $1 "; _push "$c" "$2%"
-  local reserva=""
-  if [ "${4:-0}" = 1 ] && [[ "$3" = <-> ]]; then pace_5h "$2" "$3"; reserva="$RESERVA"; fi
-  if [[ "$3" = <-> ]] && { [ "$2" -ge 80 ] || { [ -n "$reserva" ] && [ "$reserva" -lt 0 ]; }; }; then
+  if [[ "$3" = <-> ]] && { [ "$2" -ge 80 ] || { [ -n "$4" ] && [ "$4" -lt 0 ]; }; }; then
     fmt_until "$3"; _push "$c" " ↻${REPLY}"
-  fi
-  if [ -n "$reserva" ]; then
-    if [ "$reserva" -ge 0 ]; then _push "$GAUGE_C" " ${GAUGE} +${reserva}%"; else _push "$GAUGE_C" " ${GAUGE} −${reserva#-}%"; fi
   fi
 }
 build_acct() {  # <1=com limites | 0=so conta e versao>
@@ -499,8 +506,11 @@ build_acct() {  # <1=com limites | 0=so conta e versao>
     _push "$NB" ""
     first=0
     if [ "$1" = "1" ]; then
-      push_window 5h "$rl5" "$r5" 1
-      push_window 7d "$rl7" "$r7"
+      if [ -n "$GAUGE" ]; then
+        if [ "$reserva" -ge 0 ]; then _push "$GAUGE_C" " ${GAUGE} +${reserva}%"; else _push "$GAUGE_C" " ${GAUGE} −${reserva#-}%"; fi
+      fi
+      push_window 5h "$rl5" "$r5" "$res5"
+      push_window 7d "$rl7" "$r7" "$res7"
     fi
   fi
   if [ -n "$cc_version" ]; then
