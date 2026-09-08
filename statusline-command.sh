@@ -402,7 +402,7 @@ C_VER="$C_SECOND"; ver_url=""
 if [ -n "$cc_version" ]; then
   if [ -n "$latest" ]; then
     if [ "$cc_version" = "$latest" ]; then
-      C_VER="\033[38;2;48;215;88m"                       # verde: na ultima
+      C_VER="$C_SECOND"                                  # na ultima: quieta, cinza; cor so quando falta atualizar
       ver_url="https://github.com/anthropics/claude-code/releases/tag/v${cc_version}"
     else
       cur_mm="${cc_version%.*}"; lat_mm="${latest%.*}"
@@ -431,9 +431,9 @@ acct_mark="$ICON_USER"; C_MARK="$C_SECOND"
 preferred=$(jq -r '.preferred // empty' "$CA_DIR/policy.json" 2>/dev/null)
 if [ -n "$account" ] && [ -n "$preferred" ]; then
   if [ "$account" = "$preferred" ]; then
-    acct_mark="1º"; C_MARK="$C_ACCENT"
+    acct_mark="①"; C_MARK="$C_ACCENT"
   else
-    acct_mark="2º"; C_MARK="$C_DIRTY"
+    acct_mark="②"; C_MARK="$C_DIRTY"
   fi
 fi
 # Tempo ate o reset de uma janela (epoch -> "45m", "1h12", "2d 5h"), em REPLY.
@@ -455,7 +455,7 @@ fmt_until() {
 #   medio amarelo sobra menos que isso
 #   rapido vermelho no ritmo atual estoura antes do reset
 # Janela com menos de 15 min decorridos nao tem ritmo e fica de fora.
-GAUGE_SLOW=$'\U000F0F86'; GAUGE_MED=$'\U000F0F85'; GAUGE_FAST=$'\U000F04C5'
+ICON_WARN=$'\uf071'; GAUGE_SLOW=$'\U000F0F86'; GAUGE_MED=$'\U000F0F85'; GAUGE_FAST=$'\U000F04C5'
 recent_5h() {  # -> REPLY pontos consumidos nos ultimos 15 min, ou "" sem historico suficiente
   REPLY=""
   [ -n "$account" ] && [ -f "$measure_file" ] || return
@@ -495,13 +495,16 @@ fi
 push_window() {  # <label> <pct> <resets_at> <reserva>
   [[ "$2" = <-> ]] || return 0
   rl_color "$2"; local c="$REPLY"
-  if [ "$1" = "$risco" ] && [ -n "$reserva" ] && [ "$reserva" -lt 25 ]; then _push "${GAUGE_C}${BOLD}" " $1 "; _push "$NB" ""
-  else _push "$C_SECOND" " $1 "; fi
+  if [ "$1" = "$risco" ] && [ -n "$reserva" ] && [ "$reserva" -lt 25 ]; then
+    [ "$reserva" -lt 0 ] && _push "$GAUGE_C" "${ICON_WARN} "
+    _push "${GAUGE_C}${BOLD}" "$1 "; _push "$NB" ""
+  else _push "$C_SECOND" "$1 "; fi
   _push "$c" "$2%"
   if [[ "$3" = <-> ]] && { [ "$2" -ge 80 ] || { [ -n "$4" ] && [ "$4" -lt 0 ]; }; }; then
     fmt_until "$3"; _push "$c" " ↻${REPLY}"
   fi
 }
+_sep() { _push "$C_TERT" " │ "; }
 build_acct() {  # <1=com limites | 0=so conta e versao>
   cells_ch=(); cells_fg=(); _ptext=""
   local first=1
@@ -512,14 +515,15 @@ build_acct() {  # <1=com limites | 0=so conta e versao>
     first=0
     if [ "$1" = "1" ]; then
       if [ -n "$GAUGE" ]; then
-        if [ "$reserva" -ge 0 ]; then _push "$GAUGE_C" " ${GAUGE} +${reserva}%"; else _push "$GAUGE_C" " ${GAUGE} −${reserva#-}%"; fi
+        _sep
+        if [ "$reserva" -ge 0 ]; then _push "$GAUGE_C" "${GAUGE} +${reserva}%"; else _push "$GAUGE_C" "${GAUGE} −${reserva#-}%"; fi
       fi
-      push_window 5h "$rl5" "$r5" "$res5"
-      push_window 7d "$rl7" "$r7" "$res7"
+      [[ "$rl5" = <-> ]] && { _sep; push_window 5h "$rl5" "$r5" "$res5"; }
+      [[ "$rl7" = <-> ]] && { _sep; push_window 7d "$rl7" "$r7" "$res7"; }
     fi
   fi
   if [ -n "$cc_version" ]; then
-    [ $first -eq 0 ] && _push "$C_SECOND" "  "
+    [ $first -eq 0 ] && _sep
     ver_start=$(( ${#cells_ch} + 1 ))
     _push "$C_SECOND" "${ICON_TAG} "
     _push "${C_VER}${BOLD}" "$cc_version"
@@ -528,12 +532,13 @@ build_acct() {  # <1=com limites | 0=so conta e versao>
       cells_fg[$ver_start]="\033]8;;${ver_url}\a${cells_fg[$ver_start]}"
       cells_ch[-1]="${cells_ch[-1]}\033]8;;\a"
     fi
+    first=0
   fi
   # Status do Claude: um ponto na cor do indicador; degradado ganha o nome do
   # componente afetado. Clique abre status.claude.com.
   if [ -n "$st_ind" ]; then
+    [ $first -eq 0 ] && _sep
     local st_start=$(( ${#cells_ch} + 1 ))
-    _push "$C_SECOND" "  "
     _push "$C_ST" "●"
     [ "$st_ind" != none ] && [ -n "$st_txt" ] && _push "$C_ST" " ${st_txt}"
     if [ -n "$st_url" ]; then
