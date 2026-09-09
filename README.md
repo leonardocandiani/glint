@@ -12,7 +12,7 @@
 <div align="center">
 
   <br>
-  <img src="https://raw.githubusercontent.com/leonardocandiani/glint/main/preview.png" alt="glint preview" width="820" />
+  <img src="preview.png" alt="glint preview" width="820" />
   <br><br>
 
   <p><strong>One rounded pill on your terminal's dark background: model, effort, context pressure, git state, which Claude account you are on and how much of it is left, version freshness and Claude's own status, at a glance.</strong></p>
@@ -155,7 +155,7 @@ python3 ~/.claude/glint-panel/server.py
 ```
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/leonardocandiani/glint/main/panel.png" alt="the glint panel" width="880" />
+  <img src="panel.png" alt="the glint panel" width="880" />
 </div>
 
 It opens in your browser and writes to `~/.config/glint/config.json`, backing up
