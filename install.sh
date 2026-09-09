@@ -54,8 +54,8 @@ fail()  { printf '%s\n' "${ERR}xx${R} $*" >&2; exit 1; }
 have()  { command -v "$1" >/dev/null 2>&1; }
 
 # Pick whatever downloader is present.
-download() {
-  # download <url> <dest>
+fetch_once() {
+  # fetch_once <url> <dest>
   local url="$1" dest="$2"
   if have curl; then
     curl -fsSL "$url" -o "$dest"
@@ -64,6 +64,21 @@ download() {
   else
     fail "need curl or wget to download $SCRIPT_NAME"
   fi
+}
+
+# raw.githubusercontent answers 503 now and then, and a one-shot download turns
+# that hiccup into a failed install. Three tries, backing off.
+download() {
+  # download <url> <dest>
+  local url="$1" dest="$2" try=1
+  while [ "$try" -le 3 ]; do
+    if fetch_once "$url" "$dest" && [ -s "$dest" ]; then
+      return 0
+    fi
+    [ "$try" -lt 3 ] && sleep "$try"
+    try=$((try + 1))
+  done
+  return 1
 }
 
 # --- preflight --------------------------------------------------------------
