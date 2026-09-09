@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>glint</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='11' width='28' height='10' rx='5' fill='%232d3243'/%3E%3Ccircle cx='9' cy='16' r='2.6' fill='%230a84ff'/%3E%3Crect x='14' y='15' width='13' height='2' rx='1' fill='%236a6a70'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/panel.css">
+</head>
+<body>
+
+<header class="chrome">
+  <div class="chrome-row">
+    <h1>glint</h1>
+    <div class="segmented" id="scenarios" role="tablist" aria-label="Preview scenario"></div>
+    <div class="spacer"></div>
+    <label class="width">
+      <span>width</span>
+      <input id="columns" type="range" min="60" max="200" value="135" step="1">
+      <output id="columns-out">135</output>
+    </label>
+  </div>
+  <div class="preview" id="preview" aria-live="polite">
+    <div class="preview-empty">loading the preview</div>
+  </div>
+  <p class="preview-note" id="preview-note"></p>
+</header>
+
+<main>
+  <section class="col" aria-labelledby="t-parts">
+    <div class="col-head">
+      <h2 id="t-parts">Parts of the bar</h2>
+      <p>Drag a card to reorder it, or focus one and press <kbd>⌥</kbd><kbd>↑</kbd> / <kbd>⌥</kbd><kbd>↓</kbd>.
+        The switch on the right takes a part out of the bar and puts it back.</p>
+    </div>
+
+    <p class="legend">
+      <b>Join</b> is how a part attaches to the one before it. Click the chip to cycle:
+      <span><i>▏</i>new block</span><span><i>│</i>divider</span><span><i>␣</i>space</span><span><i>·</i>tight</span>
+    </p>
+
+    <ul class="list" id="active"></ul>
+    <p class="empty" id="active-empty" hidden>Nothing in the bar: it comes out blank.</p>
+
+    <div class="off-head" id="off-head" hidden>
+      <h3>Out of the bar</h3>
+      <p>Switch one back on and it returns to the end of the list.</p>
+    </div>
+    <ul class="list" id="inactive"></ul>
+  </section>
+
+  <section class="col" aria-labelledby="t-side">
+    <div class="col-head">
+      <h2 id="t-side">Presets and options</h2>
+      <p>A preset replaces the whole list. Undo brings your layout back.</p>
+    </div>
+
+    <div class="card">
+      <h3>Presets</h3>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div class="card panel-block">
+      <h3>Appearance</h3>
+      <label class="row"><span>Solid background<em>no gradient, for terminals that quantize colour</em></span>
+        <button class="switch" id="th-flat" role="switch" aria-checked="false"></button></label>
+      <label class="row"><span>Clickable links<em>version, status and project open in the browser</em></span>
+        <button class="switch" id="th-links" role="switch" aria-checked="true"></button></label>
+      <label class="row"><span>ASCII mode<em>for fonts without Nerd Font glyphs</em></span>
+        <button class="switch" id="th-ascii" role="switch" aria-checked="false"></button></label>
+    </div>
+
+    <div class="card panel-block">
+      <h3>Configuration</h3>
+      <p class="path" id="config-path"></p>
+      <div class="btn-row">
+        <button class="btn" id="export">Export</button>
+        <button class="btn" id="import">Import</button>
+        <button class="btn ghost" id="reset">Back to default</button>
+      </div>
+      <input type="file" id="file" accept="application/json,.json" hidden>
+    </div>
+  </section>
+</main>
+
+<footer class="dock">
+  <span class="dot" id="dot" data-state="saved" aria-hidden="true"></span>
+  <span class="dock-msg" id="msg">Loading</span>
+  <span class="dock-sep"></span>
+  <button class="btn ghost" id="undo" disabled title="Undo (⌘Z)">Undo</button>
+  <button class="btn ghost" id="redo" disabled title="Redo (⇧⌘Z)">Redo</button>
+  <button class="btn ghost" id="revert" disabled title="Drop every change since the last save">Discard</button>
+  <button class="btn primary" id="save" disabled title="Save to the config file (⌘S)">Save</button>
+</footer>
+
+<script src="/panel.js"></script>
+</body>
+</html>

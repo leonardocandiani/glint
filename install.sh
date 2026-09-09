@@ -10,6 +10,7 @@
 #   4. makes it executable
 #   5. checks for jq (hard requirement)
 #   6. merges settings.json: sets .statusLine (non-destructive, leaves the rest)
+#   7. installs the panel (the local editor for what the bar shows) when python3 is around
 #
 # Repo:    https://github.com/leonardocandiani/glint
 # License: MIT
@@ -183,6 +184,40 @@ rm -f "$TMP_SETTINGS.seed" 2>/dev/null || true
 good "updated $SETTINGS_PATH"
 info "  .statusLine.command = $STATUSLINE_CMD"
 
+# --- 6. panel (optional local editor) ---------------------------------------
+
+# The panel edits ~/.config/glint/config.json (which parts show up, in which
+# order, how each joins the previous) with a live preview that runs this very
+# script. It needs python3 and nothing else; if python3 is missing we skip it
+# and the status line still works, since the config file is optional.
+
+PANEL_DIR="$CLAUDE_DIR/glint-panel"
+PANEL_FILES="server.py index.html panel.css panel.js"
+PANEL_BASE="${STATUSLINE_PANEL_URL:-https://raw.githubusercontent.com/$REPO/main/panel}"
+
+if have python3; then
+  mkdir -p "$PANEL_DIR"
+  panel_ok=1
+  for f in $PANEL_FILES; do
+    TMP_PANEL="$(mktemp "${TMPDIR:-/tmp}/glint-panel.XXXXXX")"
+    if download "$PANEL_BASE/$f" "$TMP_PANEL" && [ -s "$TMP_PANEL" ]; then
+      mv "$TMP_PANEL" "$PANEL_DIR/$f"
+    else
+      rm -f "$TMP_PANEL"
+      panel_ok=0
+      break
+    fi
+  done
+  if [ "$panel_ok" = 1 ]; then
+    good "installed the panel in $PANEL_DIR"
+    info "  run it with: python3 $PANEL_DIR/server.py"
+  else
+    warn "could not download the panel. The status line is installed and works; re-run this script to try again."
+  fi
+else
+  info "python3 not found, skipping the panel (the status line does not need it)"
+fi
+
 # --- done -------------------------------------------------------------------
 
 echo
@@ -196,6 +231,10 @@ cat <<EOF
 
   ${DIM}Requirements: zsh + jq + a Nerd Font in your terminal (for the pill
   glyphs and icons), with 24-bit truecolor enabled.${R}
+
+  ${DIM}Pick what shows up, drag the parts into the order you want and see it
+  rendered before you commit to it:${R}
+    python3 $CLAUDE_DIR/glint-panel/server.py
 
   Restart Claude Code (or open a new session) to see the statusline.
 EOF

@@ -28,6 +28,7 @@
     <a href="#features">Features</a> •
     <a href="#preview-anatomy">Preview / Anatomy</a> •
     <a href="#install">Install</a> •
+    <a href="#the-panel">The panel</a> •
     <a href="#configuration">Configuration</a> •
     <a href="#how-it-works">How it works</a> •
     <a href="#requirements">Requirements</a> •
@@ -47,6 +48,8 @@
 ```yaml
 product:  status line for the Claude Code CLI
 shows:    model · effort · thinking lamp · project · branch + dirty count · context bar and %
+          · which account · quota pace · 5h and 7d windows · version · API status · network
+edit:     a local panel picks the parts, their order and how each one joins the previous
 look:     Powerline caps, per-character RGB gradient, responsive stacking on narrow terminals
 context:  tracks CLAUDE_CODE_AUTO_COMPACT_WINDOW when set, model ceiling otherwise
 speed:    one jq pass, one git pass, ~20ms per draw
@@ -60,6 +63,7 @@ license:  MIT
 ## Features
 
 - 🪟 **Liquid-glass pill** with rounded Powerline caps and a per-character RGB gradient: bright rim light at the edges easing into a darker, cool-tinted body. No banding, no zone seams.
+- 🎛️ **A local panel to shape the bar**: `python3 ~/.claude/glint-panel/server.py` opens a page where you switch parts on and off, drag them into the order you want (or move them with <kbd>⌥</kbd><kbd>↑</kbd>/<kbd>⌥</kbd><kbd>↓</kbd>), and choose how each one attaches to the previous. The preview is the real script running with your draft config, with scenarios for a full context window, a quota about to run out or a narrow terminal. Undo and redo cover everything, presets cover the usual shapes, and the result is a plain JSON file you can export, import or edit by hand. Nothing leaves the machine: loopback only, standard library only. See [The panel](#the-panel).
 - 🧠 **Future-proof model name** read straight from `model.display_name`. Opus 4.8, 4.9, whatever ships next shows up on its own, no script edits.
 - 📊 **Context bar that can track auto-compaction.** Set `CLAUDE_CODE_AUTO_COMPACT_WINDOW` and the bar measures against it, so the percentage shows how close you are to a compaction instead of the distant model ceiling. Falls back to the model's context size otherwise.
 - 🎚️ **Thin slider bar** with a round knob marking the fill point. State color shifts with pressure: green under 50%, yellow at 50%, orange at 75%, red at 90%.
@@ -80,16 +84,21 @@ license:  MIT
 On a wide terminal the whole status line is a single pill; when it doesn't fit, it breaks into stacked pills (see [Responsive line breaking](#how-it-works)). Reading left to right:
 
 ```
-   Opus 4.8  xhigh  💡    my-project    main •3    ━━━━●───  62%  124K/200K    1º work 5h 84% ↻1h12 7d 31%   2.1.263  ●
-   └─ model  └─ effort  └─ thinking  └─ project  └─ branch + dirty  └─ context: bar, %, tokens  └─ account, limits  └─ version, status
+   Opus 4.8  󰓅 💡    my-project    main •3    ━━━━●───  62%  124K/200K   ①  │ 󰓅  −12% │  5h 84% ↻1h12 │ ⚠7d 91% ↻2d 4h │   2.1.263 │ ● │ 󰖩
+   └─ model  └─ effort gauge, thinking lamp   └─ project   └─ branch + dirty   └─ context: bar, %, tokens
+                                                       account ─┘   pace ─┘   5h and 7d windows ─┘   version ─┘  status ─┘  network ─┘
 ```
+
+Thin `│` dividers separate account, pace, windows, version, status and network, so the right half reads as a set of small facts rather than one run-on line.
 
 | Part | What it shows | Detail |
 | --- | --- | --- |
 | **Rounded caps** | The pill's left and right ends | Powerline glyphs `U+E0B6` / `U+E0B4`, tinted to match the bright edge of the gradient so the pill reads as one coherent surface |
 | **Model** | `Opus 4.8`, `Sonnet 4.6`, etc. | From `model.display_name`, with a parse of `model.id` as fallback. Rendered in Apple blue, the single accent color |
-| **Account** | `1º work`, `2º personal` | The account this session runs on, resolved from `CLAUDE_CODE_OAUTH_TOKEN` (matched to your `claude-account` profiles by SHA-256 fingerprint, cached) or the native login otherwise. `1º` in blue means the primary of `~/.config/claude-account/policy.json`, `2º` in amber means the fallback |
-| **Limits** | `5h 84% ↻1h12  7d 31%` | The account's 5-hour and 7-day usage from Claude Code's `rate_limits`: green under 55%, yellow from 55%, orange from 80%, red from 90%. From 80% up, `↻` shows the time until that window resets |
+| **Account** | `①` or `②` | The account this session runs on, resolved from `CLAUDE_CODE_OAUTH_TOKEN` (matched to your `claude-account` profiles by SHA-256 fingerprint, cached) or the native login otherwise. `①` in blue means the primary of `~/.config/claude-account/policy.json`, `②` in amber means the fallback. The profile name stays out of the bar; `claude-account status` has it |
+| **Pace** | gauge + `−12%` | A wordless pace study: the speedometer reads slow, medium or fast for how the quota is being spent, and the number is the reserve, how much of the window you end up with (or over) at the current pace. Green means room to push, red means the window empties before it resets |
+| **Limits** | `5h 84% ↻1h12  ⚠7d 91% ↻2d 4h` | The account's 5-hour and 7-day usage: green under 55%, yellow from 55%, orange from 80%, red from 90%. From 80% up, `↻` shows the time until that window resets. When the gauge leaves green, the window at risk takes the gauge colour in bold, with a `⚠` when it is going to run out |
+| **Network** | wifi glyph | A light HEAD request to the Anthropic API, coloured by latency: green up to 300 ms, yellow up to 1 s, orange above, red when nothing answers |
 | **Version** | `2.1.263` | Claude Code's own version from the payload. Green = latest on npm, yellow = a patch behind, red = a minor or major behind. Clickable: opens the GitHub release |
 | **Status** | `●` or `● API,Code` | status.claude.com indicator. Green when all systems are operational; otherwise the incident color plus the affected components. Clickable: opens the status page |
 | **Effort** | gauge needle low / middle / end | One glyph, coloured by level (gold, green, blue, purple, magenta, cyan), so you read your reasoning budget without a word. `ultra` is ultracode |
@@ -133,6 +142,70 @@ The installer copies the script into `~/.claude/`, backs up anything it replaces
 3. Restart Claude Code (or start a new session). The pill shows up at the bottom.
 
 That's it. By default the context bar measures against the model's reported context size. If you'd rather it track how close you are to an auto-compaction, opt in (see Configuration).
+
+## The panel
+
+Everything the bar can show is a part, and the panel is where you decide which
+parts show up, in which order, and how each one attaches to the one before it.
+It is a small local page: no build step, no dependency beyond python3, and the
+socket only listens on `127.0.0.1`.
+
+```sh
+python3 ~/.claude/glint-panel/server.py
+```
+
+It opens in your browser and writes to `~/.config/glint/config.json`, backing up
+the previous version every time you save. Delete that file and the bar goes back
+to the default layout, which is the one it has always had.
+
+<b>The preview is the real thing.</b> Every change re-runs `statusline-command.sh`
+with your draft config and renders the ANSI it printed, so what you see in the
+page is what the terminal will draw. Only the payload is synthetic, which is how
+you can look at a full context window or a quota about to run out without waiting
+for one to happen: pick a scenario at the top, or drag the width slider to watch
+the pill break into stacked pills.
+
+<b>One switch, one list.</b> Every part is a card. The switch on the right takes
+it out of the bar, and the card drops to `Out of the bar` at the bottom of the
+same list, where the same switch brings it back. Nothing is hidden in a second
+place with a different control.
+
+<b>Reorder by drag or by keyboard.</b> The card follows the pointer one to one,
+the list opens the gap during the gesture rather than after it, and you can grab
+a card again mid-flight; it keeps the velocity it had. Or focus a card and press
+<kbd>⌥</kbd><kbd>↑</kbd> / <kbd>⌥</kbd><kbd>↓</kbd>.
+
+<b>Every change is reversible.</b> Undo and redo cover everything, including
+applying a preset or importing a file: <kbd>⌘Z</kbd>, <kbd>⇧⌘Z</kbd>, or the
+buttons in the bar at the bottom. `Discard` drops everything since the last save,
+`Save` (<kbd>⌘S</kbd>) writes the file. A dot in that bar is amber while there is
+something unsaved and green when the file matches what you see.
+
+<b>Join, in one line.</b> Each card carries how it attaches to the one before
+it, and clicking the chip cycles through the four: `▏new block` (may move to
+another pill), `│divider`, `␣space`, `·tight`. The first card has nothing to
+attach to, so it says `first` and stays out of the way.
+
+Presets cover the usual shapes (everything, minimal, quota first, repo work),
+and export/import moves the JSON between machines.
+
+The config file is plain JSON and hand-editable if you would rather skip the
+page:
+
+```json
+{
+  "version": 1,
+  "parts": [
+    { "id": "model", "on": true, "join": "block" },
+    { "id": "context", "on": true, "join": "block", "opts": { "bar": 8, "tokens": true } },
+    { "id": "version", "on": false, "join": "pipe" }
+  ],
+  "theme": { "flat": false, "links": true, "ascii": false }
+}
+```
+
+`statusline-command.sh --parts` lists every part id with what it draws, and
+`--default-config` prints the factory layout.
 
 ## Configuration
 

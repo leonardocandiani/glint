@@ -38,6 +38,58 @@ ICON_FAST=$''
 ICON_USER=$''
 ICON_TAG=$''
 
+# --- Catalogo de partes (fonte unica que o painel consome) ---
+# id|rotulo|o que desenha|opcoes (chave:tipo:default, separadas por virgula)
+GLINT_CATALOG='model|Model|The session model name|
+effort|Effort|Reasoning gauge, coloured by level|
+thinking|Lamp|Lights up when extended thinking is on|
+fast|Bolt|Shows up in fast mode|
+project|Project|Working folder, clickable|
+git|Git|Branch or worktree, with a dirty counter|
+context|Context|Context window bar, percentage and tokens|bar:int:8,tokens:bool:true
+account|Account|Which Claude account is in use: primary or fallback|
+pace|Pace|Quota speedometer and reserve in points|
+win5h|5h window|The 5-hour window usage and when it resets|
+win7d|7d window|The 7-day window usage and when it resets|
+version|Version|Claude Code version, clickable, coloured when an update is out|
+status|Status|status.claude.com dot, clickable|
+net|Network|Internet health to the API, coloured by latency|'
+if [ "${1:-}" = "--parts" ]; then printf '%s\n' "$GLINT_CATALOG"; exit 0; fi
+if [ "${1:-}" = "--default-config" ]; then
+  printf '%s\n' 'model:block effort:space thinking:none fast:none project:block git:block context:block account:block pace:pipe win5h:pipe win7d:pipe version:pipe status:pipe net:pipe' \
+  | tr ' ' '\n' | awk -F: 'BEGIN{print "{\n  \"version\": 1,\n  \"parts\": ["} {printf "%s    {\"id\": \"%s\", \"on\": true, \"join\": \"%s\"%s}", (NR>1?",\n":""), $1, $2, ($1=="context" ? ", \"opts\": {\"bar\": 8, \"tokens\": true}" : "")} END{print "\n  ],\n  \"theme\": {\"flat\": false, \"links\": true, \"ascii\": false}\n}"}'
+  exit 0
+fi
+
+# --- Config: o que aparece, em que ordem e como cada parte se junta a anterior ---
+# Sem arquivo, vale o default abaixo, que e exatamente o layout de sempre. O
+# painel (`glint-panel`) edita esse arquivo; GLINT_CONFIG aponta pra outro
+# (o preview do painel usa isso pra renderizar um rascunho sem salvar).
+#   join: block = pode quebrar pra outra pilula | pipe = divisor "|" | space | none
+GLINT_PARTS_DEFAULT='model:block effort:space thinking:none fast:none project:block git:block context:block account:block pace:pipe win5h:pipe win7d:pipe version:pipe status:pipe net:pipe'
+cfg_file="${GLINT_CONFIG:-$HOME/.config/glint/config.json}"
+part_specs=(${=GLINT_PARTS_DEFAULT})
+cfg_ctx_bar=8; cfg_ctx_tokens=1; cfg_theme_flat=""; cfg_theme_links=""; cfg_theme_ascii=""
+if [ -f "$cfg_file" ] && command -v jq >/dev/null 2>&1; then
+  cfg_line=$(jq -r '
+    def parts: [.parts[]? | select(.on != false) | "\(.id):\(.join // "space")"] | join(" ");
+    def ctx: (.parts[]? | select(.id == "context") | .opts) // {};
+    [parts, ((ctx.bar // 8) | tostring), (if (ctx.tokens // true) then "1" else "0" end),
+     (.theme.flat // "" | tostring), (.theme.links // "" | tostring), (.theme.ascii // "" | tostring),
+     (if (.parts | type) == "array" then "1" else "0" end)]
+    | join("\u0001")' "$cfg_file" 2>/dev/null) || cfg_line=""
+  if [ -n "$cfg_line" ]; then
+    IFS=$'\001' read -r c_parts c_bar c_tok cfg_theme_flat cfg_theme_links cfg_theme_ascii c_has <<< "$cfg_line"
+    # Lista vazia e uma escolha ("nao quero nada"), diferente de config sem a chave.
+    [ "$c_has" = 1 ] && part_specs=(${=c_parts})
+    [[ "$c_bar" = <-> ]] && cfg_ctx_bar=$c_bar
+    [ -n "$c_tok" ] && cfg_ctx_tokens=$c_tok
+  fi
+fi
+[ -z "${GLINT_ASCII:-}" ]     && [ "$cfg_theme_ascii" = true ]  && GLINT_ASCII=1
+[ -z "${GLINT_NO_LINKS:-}" ]  && [ "$cfg_theme_links" = false ] && GLINT_NO_LINKS=1
+[ -z "${GLINT_FLAT_BG:-}" ]   && [ "$cfg_theme_flat" = true ]   && GLINT_FLAT_BG=1
+
 # GLINT_ASCII=1: pra fonte sem glyphs Nerd Font (caps e ícones virariam
 # caixas/tofu). Pílula fica reta e os ícones saem; só texto simples.
 if [ -n "${GLINT_ASCII:-}" ]; then
@@ -241,7 +293,17 @@ _push() { local fg="$1" txt="$2" n=${#2} k=1
   _ptext+="$txt"
   while [ $k -le $n ]; do cells_ch+=("${txt[$k]}"); cells_fg+=("$fg"); k=$((k+1)); done; }
 
-# --- Bloco 1: identidade (modelo, effort, lampada do thinking, raio do fast) ---
+# --- Partes: cada uma so empilha as proprias celulas ---
+# Quem decide ordem, visibilidade e junção e o laço no fim do arquivo, lendo a
+# config. Parte que nao tem o que desenhar (sem git, sem conta, sem gauge)
+# simplesmente nao empilha nada, e o laço desfaz o separador que ja tinha posto.
+link_wrap() {  # <indice da primeira celula da parte> <url>: envolve sem mudar largura
+  [ -n "$2" ] || return 0
+  [ $1 -le ${#cells_ch} ] || return 0
+  cells_fg[$1]="\033]8;;${2}\a${cells_fg[$1]}"
+  cells_ch[-1]="${cells_ch[-1]}\033]8;;\a"
+}
+
 # O effort e so um velocimetro (o mesmo de tres niveis da cota), sem palavra:
 # ponteiro baixo em low, meio em medium, no fim de high pra cima; a cor do
 # nivel separa high, xhigh, max e ultra.
@@ -251,45 +313,34 @@ case "$effort" in
   high|xhigh|max|ultra) ICON_EFFORT=$'\U000F04C5' ;;
   *)                    ICON_EFFORT="" ;;
 esac
-# Em tela apertada o texto do effort sai; modelo, lampada e raio sempre ficam.
-build_id() {  # <1=com texto do effort | 0=sem>
-  cells_ch=(); cells_fg=(); _ptext=""
-  _push "${C_ACCENT}${BOLD}" "$model"
-  [ -n "$ICON_EFFORT" ] && _push "$C_EFFORT" "  ${ICON_EFFORT} "
-  [ "$thinking" = "true" ]  && _push "$C_GOLD"   " ${ICON_THINK}"
-  [ "$fast_mode" = "true" ] && _push "$C_SECOND" " ${ICON_FAST}"
+
+part_model()    { _push "${C_ACCENT}${BOLD}" "$model"; }
+# Sem espaco proprio: a junção ja poe dois, que e a folga que glifo largo pede.
+part_effort()   { [ -n "$ICON_EFFORT" ] && _push "$C_EFFORT" "${ICON_EFFORT} "; }
+part_thinking() { [ "$thinking" = "true" ]  && _push "$C_GOLD"   " ${ICON_THINK}"; }
+part_fast()     { [ "$fast_mode" = "true" ] && _push "$C_SECOND" " ${ICON_FAST}"; }
+
+part_project() {
+  [ -n "$project_name" ] || return 0
+  local st=$(( ${#cells_ch} + 1 ))
+  _push "${NB}${C_SECOND}" "${ICON_FOLDER} "
+  _push "$C_PRIMARY" "$project_name"
+  link_wrap $st "$proj_url"
 }
-build_id 1
-[ ${(m)#_ptext} -gt $cap ] && build_id 0
-g1_ch=("${cells_ch[@]}"); g1_fg=("${cells_fg[@]}"); g1_w=${(m)#_ptext}
 
-# --- Bloco 2: projeto ---
-cells_ch=(); cells_fg=(); _ptext=""
-_push "${NB}${C_SECOND}" "${ICON_FOLDER} "
-_push "$C_PRIMARY" "$project_name"
-g2_ch=("${cells_ch[@]}"); g2_fg=("${cells_fg[@]}"); g2_w=${(m)#_ptext}
-if [ -n "$proj_url" ]; then            # envolve o bloco num hyperlink (largura nao muda)
-  g2_fg[1]="\033]8;;${proj_url}\a${g2_fg[1]}"
-  g2_ch[-1]="${g2_ch[-1]}\033]8;;\a"
-fi
+part_git() {
+  [ -n "$git_label" ] || return 0
+  local st=$(( ${#cells_ch} + 1 ))
+  _push "$C_SECOND" "${git_icon} "
+  _push "$C_PRIMARY" "$git_label"
+  [ -n "$dirty_str" ] && _push "$C_DIRTY" " •${changes}"
+  link_wrap $st "$git_url"
+}
 
-# --- Bloco 3: git / worktree ---
-cells_ch=(); cells_fg=(); _ptext=""
-_push "$C_SECOND" "${git_icon} "
-_push "$C_PRIMARY" "$git_label"
-[ -n "$dirty_str" ] && _push "$C_DIRTY" " •${changes}"
-g3_ch=("${cells_ch[@]}"); g3_fg=("${cells_fg[@]}"); g3_w=${(m)#_ptext}
-if [ -n "$git_url" ]; then             # envolve o bloco num hyperlink (largura nao muda)
-  g3_fg[1]="\033]8;;${git_url}\a${g3_fg[1]}"
-  g3_ch[-1]="${g3_ch[-1]}\033]8;;\a"
-fi
-
-# --- Bloco 4: contexto (icone, slider, %, tokens) ---
-# Adapta a tela: completo (barra 8 + % + tokens) -> sem tokens -> barra curta sem
-# tokens. Escolhe a versao mais rica que cabe numa pilula.
-build_ctx() {  # <bar_len> <1=mostra tokens | 0=nao>
-  cells_ch=(); cells_fg=(); _ptext=""
-  local bl=$1 bf i
+# Contexto: icone, slider, %, tokens. CTX_BAR e CTX_TOKENS sao o que o laço
+# reduz quando a pilula nao cabe na tela.
+part_context() {
+  local bl=$CTX_BAR bf i
   bf=$(( (context_pct * bl + 50) / 100 ))
   [ $bf -gt $bl ] && bf=$bl; [ $bf -lt 0 ] && bf=0
   [ $context_pct -gt 0 ] && [ $bf -eq 0 ] && bf=1
@@ -302,15 +353,11 @@ build_ctx() {  # <bar_len> <1=mostra tokens | 0=nao>
     i=$((i+1))
   done
   _push "${STATE}${BOLD}" "  ${context_pct}%"
-  if [ "$2" = "1" ]; then
+  if [ "$CTX_TOKENS" = "1" ]; then
     _push "$C_PRIMARY" "  ${tokens_display}"
     _push "$C_SECOND" "/${context_display}"
   fi
 }
-build_ctx 8 1
-[ ${(m)#_ptext} -gt $cap ] && build_ctx 8 0
-[ ${(m)#_ptext} -gt $cap ] && build_ctx 4 0
-g4_ch=("${cells_ch[@]}"); g4_fg=("${cells_fg[@]}"); g4_w=${(m)#_ptext}
 
 # --- Bloco 5: conta ativa + limites da conta + versao do Claude Code ---
 # Conta: a que ESTA sessao usa de fato (nao o perfil marcado como ativo, que pode
@@ -318,7 +365,9 @@ g4_ch=("${cells_ch[@]}"); g4_fg=("${cells_fg[@]}"); g4_w=${(m)#_ptext}
 # CLAUDE_CODE_OAUTH_TOKEN, e um perfil de setup-token: casa o fingerprint do token
 # com os perfis do claude-account (cache em disco pra nao abrir o Keychain a cada
 # segundo). Sem a variavel, e o login nativo.
-CA_DIR="$HOME/.config/claude-account"
+# GLINT_ACCOUNT_DIR: so o painel usa, pra pre-visualizar cenarios de cota com
+# uma medicao forjada sem tocar na de verdade.
+CA_DIR="${GLINT_ACCOUNT_DIR:-$HOME/.config/claude-account}"
 CACHE_DIR="$HOME/.claude/.cache"; mkdir -p "$CACHE_DIR" 2>/dev/null
 account=""
 if [ -d "$CA_DIR/profiles" ]; then
@@ -327,7 +376,7 @@ if [ -d "$CA_DIR/profiles" ]; then
     fp_cache="$CACHE_DIR/statusline-account-fp"
     account=$(grep "^${tok_fp} " "$fp_cache" 2>/dev/null | head -1 | cut -d' ' -f2)
     if [ -z "$account" ]; then
-      for pf in "$CA_DIR"/profiles/*.json; do
+      for pf in "$CA_DIR"/profiles/*.json(N); do
         [ -f "$pf" ] || continue
         [ "$(jq -r '.type' "$pf")" = "oauth_token" ] || continue
         svc=$(jq -r '.keychainService' "$pf")
@@ -342,7 +391,7 @@ if [ -d "$CA_DIR/profiles" ]; then
       [ -z "$account" ] && account="token?"
     fi
   else
-    for pf in "$CA_DIR"/profiles/*.json; do
+    for pf in "$CA_DIR"/profiles/*.json(N); do
       [ -f "$pf" ] || continue
       [ "$(jq -r '.type' "$pf")" = "native_archive" ] && { account=$(jq -r '.name' "$pf"); break; }
     done
@@ -538,60 +587,115 @@ push_window() {  # <label> <pct> <resets_at> <reserva>
     fmt_until "$3"; _push "$c" " ↻${REPLY}"
   fi
 }
-_sep() { _push "$C_TERT" " │ "; }
-build_acct() {  # <1=com limites | 0=so conta e versao>
+# So a marca (① primaria, ② reserva): o nome da conta vive em `claude-account status`.
+# Espaco duplo depois de glifo largo: ①, velocimetro e tag ocupam mais que a
+# celula em alguns terminais e engolem o espaco seguinte.
+part_account() { [ -n "$account" ] && { _push "${C_MARK}${BOLD}" "${acct_mark} "; _push "$NB" ""; } }
+
+part_pace() {
+  [ -n "$GAUGE" ] || return 0
+  if [ "$reserva" -ge 0 ]; then _push "$GAUGE_C" "${GAUGE}  +${reserva}%"
+  else _push "$GAUGE_C" "${GAUGE}  −${reserva#-}%"; fi
+}
+
+part_win5h() { push_window 5h "$rl5" "$r5" "$res5"; }
+part_win7d() { push_window 7d "$rl7" "$r7" "$res7"; }
+
+part_version() {
+  [ -n "$cc_version" ] || return 0
+  local st=$(( ${#cells_ch} + 1 ))
+  _push "$C_SECOND" "${ICON_TAG}  "
+  _push "${C_VER}${BOLD}" "$cc_version"
+  _push "$NB" ""
+  link_wrap $st "$ver_url"
+}
+
+# Status do Claude: um ponto na cor do indicador; degradado ganha o nome do
+# componente afetado. Clique abre status.claude.com.
+part_status() {
+  [ -n "$st_ind" ] || return 0
+  local st=$(( ${#cells_ch} + 1 ))
+  _push "$C_ST" "●"
+  [ "$st_ind" != none ] && [ -n "$st_txt" ] && _push "$C_ST" " ${st_txt}"
+  link_wrap $st "$st_url"
+}
+
+part_net() { [ -n "$net_ms" ] && _push "$C_NET" "${ICON_NET}"; }
+
+# --- Monta os blocos na ordem da config ---
+# Bloco e a unidade que o empacotador pode jogar pra outra pilula; dentro dele
+# as partes se juntam por espaco ou por divisor.
+flush_block() {
+  [ ${#cells_ch} -gt 0 ] || return 0
+  nblocks=$((nblocks + 1))
+  set -A "g${nblocks}_ch" "${cells_ch[@]}"
+  set -A "g${nblocks}_fg" "${cells_fg[@]}"
+  typeset -g "g${nblocks}_w"=${(m)#_ptext}
   cells_ch=(); cells_fg=(); _ptext=""
-  local first=1
-  if [ -n "$account" ]; then
-    # So a marca (① primaria, ② reserva): o nome da conta vive em `claude-account status`.
-    # Espaco duplo depois de glifo largo: ①, velocimetro e tag ocupam mais que a
-    # celula em alguns terminais e engolem o espaco seguinte.
-    _push "${C_MARK}${BOLD}" "${acct_mark} "
-    _push "$NB" ""
-    first=0
-    if [ "$1" = "1" ]; then
-      if [ -n "$GAUGE" ]; then
-        _sep
-        if [ "$reserva" -ge 0 ]; then _push "$GAUGE_C" "${GAUGE}  +${reserva}%"; else _push "$GAUGE_C" "${GAUGE}  −${reserva#-}%"; fi
-      fi
-      [[ "$rl5" = <-> ]] && { _sep; push_window 5h "$rl5" "$r5" "$res5"; }
-      [[ "$rl7" = <-> ]] && { _sep; push_window 7d "$rl7" "$r7" "$res7"; }
-    fi
+}
+
+typeset -gA part_block
+add_part() {  # <id> <join>
+  whence -w "part_$1" >/dev/null 2>&1 || return 0
+  local n0=${#cells_ch} t0="$_ptext"
+  if [ $n0 -gt 0 ]; then
+    case "$2" in
+      pipe)  _push "$C_TERT" " │ " ;;
+      space) _push "$C_SECOND" "  " ;;
+    esac
   fi
-  if [ -n "$cc_version" ]; then
-    [ $first -eq 0 ] && _sep
-    ver_start=$(( ${#cells_ch} + 1 ))
-    _push "$C_SECOND" "${ICON_TAG}  "
-    _push "${C_VER}${BOLD}" "$cc_version"
-    _push "$NB" ""
-    if [ -n "$ver_url" ]; then
-      cells_fg[$ver_start]="\033]8;;${ver_url}\a${cells_fg[$ver_start]}"
-      cells_ch[-1]="${cells_ch[-1]}\033]8;;\a"
-    fi
-    first=0
-  fi
-  # Status do Claude: um ponto na cor do indicador; degradado ganha o nome do
-  # componente afetado. Clique abre status.claude.com.
-  if [ -n "$st_ind" ]; then
-    [ $first -eq 0 ] && _sep
-    local st_start=$(( ${#cells_ch} + 1 ))
-    _push "$C_ST" "●"
-    [ "$st_ind" != none ] && [ -n "$st_txt" ] && _push "$C_ST" " ${st_txt}"
-    if [ -n "$st_url" ]; then
-      cells_fg[$st_start]="\033]8;;${st_url}\a${cells_fg[$st_start]}"
-      cells_ch[-1]="${cells_ch[-1]}\033]8;;\a"
-    fi
-    _sep; _push "$C_NET" "${ICON_NET}"
+  local n1=${#cells_ch}
+  "part_$1"
+  if [ ${#cells_ch} -eq $n1 ]; then   # a parte nao desenhou nada: desfaz o separador
+    [ ${#cells_ch} -gt $n0 ] && { cells_ch[$((n0+1)),-1]=(); cells_fg[$((n0+1)),-1]=(); }
+    _ptext="$t0"
+    part_block[$1]=0
+  else
+    part_block[$1]=$((nblocks + 1))
   fi
 }
-build_acct 1
-[ ${(m)#_ptext} -gt $cap ] && build_acct 0
-g5_ch=("${cells_ch[@]}"); g5_fg=("${cells_fg[@]}"); g5_w=${(m)#_ptext}
+
+# Largura da pilula que abriga uma parte (0 quando a parte nao desenhou).
+block_w() {
+  local b=${part_block[$1]:-0} vn
+  [ "$b" -gt 0 ] || { print 0; return 0; }
+  vn="g${b}_w"; print ${(P)vn}
+}
+
+render_parts() {  # <barra do contexto> <1=com tokens | 0=sem> <1=com estudo de cota | 0=sem>
+  CTX_BAR=$1; CTX_TOKENS=$2; PACE_ON=$3
+  nblocks=0; cells_ch=(); cells_fg=(); _ptext=""; part_block=()
+  local spec id join vn
+  for spec in "${part_specs[@]}"; do
+    id="${spec%%:*}"; join="${spec#*:}"; [ "$join" = "$spec" ] && join=space
+    [ "$PACE_ON" = 0 ] && [[ "$id" == (pace|win5h|win7d) ]] && continue
+    [ "$join" = block ] && flush_block
+    add_part "$id" "$join"
+  done
+  flush_block
+  WIDEST=0
+  # Laço explicito: {1..0} em zsh conta pra tras e quebra com zero bloco.
+  local gi=1
+  while [ $gi -le $nblocks ]; do
+    vn="g${gi}_w"; [ ${(P)vn} -gt $WIDEST ] && WIDEST=${(P)vn}
+    gi=$((gi + 1))
+  done
+}
+
+# Adapta a tela, bloco a bloco: o contexto larga os tokens e depois encurta a
+# barra; se o bloco da conta ainda nao couber, o estudo de cota sai e sobram a
+# marca da conta, a versao e o status.
+render_parts $cfg_ctx_bar $cfg_ctx_tokens 1
+[ $(block_w context) -gt $cap ] && render_parts $cfg_ctx_bar 0 $PACE_ON
+[ $(block_w context) -gt $cap ] && render_parts 4 0 $PACE_ON
+[ $(block_w account) -gt $cap ] && render_parts $CTX_BAR $CTX_TOKENS 0
 
 # --- Greedy: enche cada pilula ate o limite, abre nova quando o proximo bloco nao cabe ---
 avail=(); vn=""
-for gi in 1 2 3 4 5; do
+gi=1
+while [ $gi -le $nblocks ]; do
   vn="g${gi}_w"; [ "${(P)vn}" -gt 0 ] && avail+=($gi)
+  gi=$((gi + 1))
 done
 lines=(); cur=""; curw=0
 for gi in "${avail[@]}"; do
