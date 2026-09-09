@@ -158,6 +158,9 @@ def scenario_payload(name: str) -> tuple[dict, int, str | None]:
     if name in ("cota-apertada", "cota-estourando"):
         now = int(time.time())
         apertada = name == "cota-apertada"
+        # Quem olha a cota costuma estar no meio de uma sessão, não no começo:
+        # um contexto de 7% ao lado de uma janela apertada não é um retrato real.
+        payload["context_window"]["current_usage"]["input_tokens"] = 372000
         forged = Path(tempfile.mkdtemp(prefix="glint-preview-"))
         (forged / "policy.json").write_text(json.dumps({"preferred": "work", "fallback": "personal"}))
         (forged / "active").write_text("work")
