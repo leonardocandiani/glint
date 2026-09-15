@@ -25,6 +25,8 @@ const state = {
   saved: null,
   scenario: "normal",
   columns: 135,
+  liveRefresh: null,
+  liveSeconds: 2,
 };
 
 /* Undo/redo sobre a config inteira: barato (a config é pequena) e cobre
@@ -585,8 +587,33 @@ async function save() {
   const data = await res.json();
   if (data.error) return setMsg(data.error, "error");
   state.saved = clone(state.config);
+  state.liveRefresh = data.liveRefresh;
   render();
-  setMsg(data.backup ? "Saved. The previous version became a backup." : "Saved.", "ok");
+  setMsg(data.liveRefresh
+    ? `Saved. The bar redraws within ${data.liveRefresh} s.`
+    : "Saved. The bar picks it up on its next redraw (turn on Live refresh to see it now).", "ok");
+}
+
+/* Liga o redesenho periódico no settings.json do Claude Code: é a única
+   forma de um Save aparecer na barra sem esperar o próximo evento. */
+async function setLive(on) {
+  const res = await fetch("/api/live-refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ on }),
+  });
+  const data = await res.json();
+  if (data.error) return setMsg(data.error, "error");
+  state.liveRefresh = data.liveRefresh;
+  renderLive();
+  setMsg(on ? `Live refresh on: the bar redraws every ${state.liveRefresh} s.` : "Live refresh off: the bar redraws on Claude Code events only.", "ok");
+}
+
+function renderLive() {
+  setSwitch("#live", !!state.liveRefresh);
+  $("#live-note").textContent = state.liveRefresh
+    ? `on: the bar redraws every ${state.liveRefresh} s, so a save shows up right away`
+    : `writes refreshInterval: ${state.liveSeconds} to ~/.claude/settings.json, nothing else`;
 }
 
 function wireScenarios() {
@@ -661,6 +688,7 @@ function wire() {
   }
 
   $("#save").addEventListener("click", save);
+  $("#live").addEventListener("click", () => setLive($("#live").getAttribute("aria-checked") !== "true"));
   $("#undo").addEventListener("click", undo);
   $("#redo").addEventListener("click", redo);
   $("#revert").addEventListener("click", () => {
@@ -693,6 +721,9 @@ async function boot() {
   state.config = data.config && !data.config.__error ? data.config : clone(data.defaults);
   state.saved = clone(state.config);
   $("#config-path").textContent = data.configPath;
+  state.liveRefresh = data.liveRefresh;
+  state.liveSeconds = data.liveSeconds || 2;
+  renderLive();
 
   const presets = $("#presets");
   for (const p of data.presets) {

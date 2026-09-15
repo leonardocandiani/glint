@@ -33,6 +33,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "statusline-command.sh"
 CONFIG = Path(os.environ.get("GLINT_CONFIG", Path.home() / ".config/glint/config.json"))
+CLAUDE_SETTINGS = Path(os.environ.get("CLAUDE_SETTINGS", Path.home() / ".claude/settings.json"))
+LIVE_SECONDS = 2
 HOST = "127.0.0.1"
 
 
@@ -236,6 +238,8 @@ class Panel(http.server.BaseHTTPRequestHandler):
                 "defaults": default_config(),
                 "config": saved,
                 "configPath": str(CONFIG),
+                "liveRefresh": live_refresh(),
+                "liveSeconds": LIVE_SECONDS,
                 "presets": PRESETS,
             })
         return self._send(404, b"not found", "text/plain; charset=utf-8")
@@ -251,6 +255,9 @@ class Panel(http.server.BaseHTTPRequestHandler):
             return self._json(self.preview(body))
         if route == "/api/save":
             return self.save(body)
+        if route == "/api/live-refresh":
+            result = set_live_refresh(bool(body.get("on")))
+            return self._json(result, 400 if "error" in result else 200)
         return self._send(404, b"not found", "text/plain; charset=utf-8")
 
     def preview(self, body: dict) -> dict:
@@ -277,7 +284,8 @@ class Panel(http.server.BaseHTTPRequestHandler):
         tmp.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
         tmp.replace(CONFIG)
         return self._json({"ok": True, "path": str(CONFIG),
-                           "backup": str(backup) if backup else None})
+                           "backup": str(backup) if backup else None,
+                           "liveRefresh": live_refresh()})
 
 
 PRESETS = [
@@ -295,6 +303,38 @@ PRESETS = [
      "parts": ["project:block", "git:block", "context:block", "model:block", "effort:space",
                "account:block", "pace:pipe", "version:pipe"]},
 ]
+
+
+# Claude Code only redraws the bar on an event of its own or every
+# statusLine.refreshInterval seconds; there is no signal a panel can send.
+# So "see the save right away" means having that interval on. The panel reads
+# and writes just that one key, and touches nothing else in settings.json.
+def live_refresh() -> int | None:
+    try:
+        data = json.loads(CLAUDE_SETTINGS.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    value = (data.get("statusLine") or {}).get("refreshInterval")
+    return int(value) if isinstance(value, (int, float)) and value > 0 else None
+
+
+def set_live_refresh(on: bool) -> dict:
+    try:
+        data = json.loads(CLAUDE_SETTINGS.read_text()) if CLAUDE_SETTINGS.is_file() else {}
+    except json.JSONDecodeError as err:
+        return {"error": f"settings.json is not valid JSON: {err}"}
+    if not isinstance(data.get("statusLine"), dict):
+        return {"error": "statusLine is not set in settings.json; run install.sh first"}
+    if on:
+        data["statusLine"]["refreshInterval"] = LIVE_SECONDS
+    else:
+        data["statusLine"].pop("refreshInterval", None)
+    backup = CLAUDE_SETTINGS.with_suffix(f".json.bak-{time.strftime('%Y%m%d%H%M%S')}")
+    shutil.copy2(CLAUDE_SETTINGS, backup)
+    tmp = CLAUDE_SETTINGS.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    tmp.replace(CLAUDE_SETTINGS)
+    return {"ok": True, "liveRefresh": live_refresh(), "backup": str(backup)}
 
 
 def free_port() -> int:

@@ -190,6 +190,12 @@ it, and clicking the chip cycles through the four: `▏new block` (may move to
 another pill), `│divider`, `␣space`, `·tight`. The first card has nothing to
 attach to, so it says `first` and stays out of the way.
 
+<b>See the save right away.</b> Claude Code only redraws the bar on an event
+of its own or every `refreshInterval` seconds; there is no signal a page can
+send it. The `Live refresh` switch writes `statusLine.refreshInterval: 2` to
+`~/.claude/settings.json` (and nothing else there, with a backup), so a save
+shows up in the terminal within two seconds instead of on the next message.
+
 Presets cover the usual shapes (everything, minimal, quota first, repo work),
 and export/import moves the JSON between machines.
 
