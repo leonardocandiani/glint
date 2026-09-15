@@ -10,7 +10,6 @@
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 setopt multibyte 2>/dev/null
 
-input=$(cat)
 
 # === PALETA (Apple dark system) ===
 C_PRIMARY="\033[38;2;242;242;245m"     # branco-suave  (valores)
@@ -53,37 +52,43 @@ win5h|5h window|The 5-hour window usage and when it resets|
 win7d|7d window|The 7-day window usage and when it resets|
 version|Version|Claude Code version, clickable, coloured when an update is out|
 status|Status|status.claude.com dot, clickable|
-net|Network|Internet health to the API, coloured by latency|'
+net|Network|Internet health to the API, coloured by latency|
+clock|Clock|Current date and time, so a session never has to guess them|date:bool:true'
 if [ "${1:-}" = "--parts" ]; then printf '%s\n' "$GLINT_CATALOG"; exit 0; fi
 if [ "${1:-}" = "--default-config" ]; then
-  printf '%s\n' 'model:block effort:space thinking:none fast:none project:block git:block context:block account:block pace:pipe win5h:pipe win7d:pipe version:pipe status:pipe net:pipe' \
-  | tr ' ' '\n' | awk -F: 'BEGIN{print "{\n  \"version\": 1,\n  \"parts\": ["} {printf "%s    {\"id\": \"%s\", \"on\": true, \"join\": \"%s\"%s}", (NR>1?",\n":""), $1, $2, ($1=="context" ? ", \"opts\": {\"bar\": 8, \"tokens\": true}" : "")} END{print "\n  ],\n  \"theme\": {\"flat\": false, \"links\": true, \"ascii\": false}\n}"}'
+  printf '%s\n' 'model:block effort:space thinking:none fast:none project:block git:block context:block account:block pace:pipe win5h:pipe win7d:pipe version:pipe status:pipe net:pipe clock:pipe' \
+  | tr ' ' '\n' | awk -F: 'BEGIN{print "{\n  \"version\": 1,\n  \"parts\": ["} {printf "%s    {\"id\": \"%s\", \"on\": true, \"join\": \"%s\"%s}", (NR>1?",\n":""), $1, $2, ($1=="context" ? ", \"opts\": {\"bar\": 8, \"tokens\": true}" : ($1=="clock" ? ", \"opts\": {\"date\": true}" : ""))} END{print "\n  ],\n  \"theme\": {\"flat\": false, \"links\": true, \"ascii\": false}\n}"}'
   exit 0
 fi
+
+input=$(cat)
 
 # --- Config: o que aparece, em que ordem e como cada parte se junta a anterior ---
 # Sem arquivo, vale o default abaixo, que e exatamente o layout de sempre. O
 # painel (`glint-panel`) edita esse arquivo; GLINT_CONFIG aponta pra outro
 # (o preview do painel usa isso pra renderizar um rascunho sem salvar).
 #   join: block = pode quebrar pra outra pilula | pipe = divisor "|" | space | none
-GLINT_PARTS_DEFAULT='model:block effort:space thinking:none fast:none project:block git:block context:block account:block pace:pipe win5h:pipe win7d:pipe version:pipe status:pipe net:pipe'
+GLINT_PARTS_DEFAULT='model:block effort:space thinking:none fast:none project:block git:block context:block account:block pace:pipe win5h:pipe win7d:pipe version:pipe status:pipe net:pipe clock:pipe'
 cfg_file="${GLINT_CONFIG:-$HOME/.config/glint/config.json}"
 part_specs=(${=GLINT_PARTS_DEFAULT})
-cfg_ctx_bar=8; cfg_ctx_tokens=1; cfg_theme_flat=""; cfg_theme_links=""; cfg_theme_ascii=""
+cfg_ctx_bar=8; cfg_ctx_tokens=1; CLOCK_DATE=1; cfg_theme_flat=""; cfg_theme_links=""; cfg_theme_ascii=""
 if [ -f "$cfg_file" ] && command -v jq >/dev/null 2>&1; then
   cfg_line=$(jq -r '
     def parts: [.parts[]? | select(.on != false) | "\(.id):\(.join // "space")"] | join(" ");
     def ctx: (.parts[]? | select(.id == "context") | .opts) // {};
-    [parts, ((ctx.bar // 8) | tostring), (if (ctx.tokens // true) then "1" else "0" end),
+    def clk: (.parts[]? | select(.id == "clock") | .opts) // {};
+    [parts, ((ctx.bar // 8) | tostring), (if ctx.tokens == false then "0" else "1" end),
+     (if clk.date == false then "0" else "1" end),
      (.theme.flat // "" | tostring), (.theme.links // "" | tostring), (.theme.ascii // "" | tostring),
      (if (.parts | type) == "array" then "1" else "0" end)]
     | join("\u0001")' "$cfg_file" 2>/dev/null) || cfg_line=""
   if [ -n "$cfg_line" ]; then
-    IFS=$'\001' read -r c_parts c_bar c_tok cfg_theme_flat cfg_theme_links cfg_theme_ascii c_has <<< "$cfg_line"
+    IFS=$'\001' read -r c_parts c_bar c_tok c_date cfg_theme_flat cfg_theme_links cfg_theme_ascii c_has <<< "$cfg_line"
     # Lista vazia e uma escolha ("nao quero nada"), diferente de config sem a chave.
     [ "$c_has" = 1 ] && part_specs=(${=c_parts})
     [[ "$c_bar" = <-> ]] && cfg_ctx_bar=$c_bar
     [ -n "$c_tok" ] && cfg_ctx_tokens=$c_tok
+    [ -n "$c_date" ] && CLOCK_DATE=$c_date
   fi
 fi
 [ -z "${GLINT_ASCII:-}" ]     && [ "$cfg_theme_ascii" = true ]  && GLINT_ASCII=1
@@ -621,6 +626,14 @@ part_status() {
 }
 
 part_net() { [ -n "$net_ms" ] && _push "$C_NET" "${ICON_NET}"; }
+
+# Relógio: a barra é redesenhada a cada evento (ou a cada refreshInterval), e
+# o modelo nem sempre sabe que dia é; aqui a data fica sempre à vista.
+part_clock() {
+  local fmt="%H:%M"
+  [ "$CLOCK_DATE" != 0 ] && fmt="%d/%m %H:%M"
+  _push "$C_SECOND" "$(date +"$fmt")"
+}
 
 # --- Monta os blocos na ordem da config ---
 # Bloco e a unidade que o empacotador pode jogar pra outra pilula; dentro dele
