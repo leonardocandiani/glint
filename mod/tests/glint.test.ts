@@ -179,21 +179,21 @@ describe("glint mod", () => {
     await $.session.start(START);
     await settle(w);
     await $.turn.start({ text: "x", turnId: "t" } as any);
-    const a = bgs(await $.ui.render(ABOVE())).join();
+    const a = bgs(pillsOf(await $.ui.render(ABOVE()))).join();
     await w.clock.advance(400);
-    expect(bgs(await $.ui.render(ABOVE())).join()).not.toBe(a);
+    expect(bgs(pillsOf(await $.ui.render(ABOVE()))).join()).not.toBe(a);
   });
 
   test("a failed tool flashes the rim, then it settles", async ($, on) => {
     const w = world(on);
     await $.session.start(START);
     await settle(w);
-    const rest = bgs(await $.ui.render(ABOVE()))[0];
+    const rest = bgs(pillsOf(await $.ui.render(ABOVE())))[0];
     w.tool = () => ({ isError: true, result: "exit 1" });
     await $.tool.call({ tool: "Bash", command: "false" } as any);
-    expect(bgs(await $.ui.render(ABOVE()))[0]).not.toBe(rest);
+    expect(bgs(pillsOf(await $.ui.render(ABOVE())))[0]).not.toBe(rest);
     await w.clock.advance(1000);
-    expect(bgs(await $.ui.render(ABOVE()))[0]).toBe(rest);
+    expect(bgs(pillsOf(await $.ui.render(ABOVE())))[0]).toBe(rest);
   });
 
   test("pressure over 90% keeps frames coming without any other trigger", async ($, on) => {
@@ -333,12 +333,12 @@ describe("glint mod", () => {
     for (const row of walk(narrow).filter((n) => /^r\d/.test(String(n.props?.key ?? "")))) expect([...textOf(row)].length).toBeLessThanOrEqual(60 - 6);
   });
 
-  test("without the Central there is no calendar block and no card for it", async ($, on) => {
+  test("without the Central the clock still opens a card with the month", async ($, on) => {
     const w = world(on);
     await $.session.start(START);
     await settle(w);
-    const tree = await $.ui.render(ABOVE());
-    expect(walk(tree).some((n) => n.props?.key === "card-clock")).toBe(false);
+    const card = walk(await settled($, ABOVE(230, 14))).find((n) => n.props?.key === "card-clock");
+    expect(textOf(card)).toContain("Outubro 2026");
   });
 
   test("version, status and repository open their own cards", async ($, on) => {
