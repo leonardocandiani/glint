@@ -66,8 +66,14 @@ function windows(nowS) {
 }
 
 // The facts, as blocks the packer can move between pills but never split.
+// Below this width the context block sheds its token count and shortens its bar before
+// anything wraps, as the status line does.
+const NARROW_COLUMNS = 90;
+const MAX_PILLS = 4;
+
 export function blocks(now, columns) {
   const nowS = Math.floor(now / 1000);
+  const narrow = columns < NARROW_COLUMNS;
   const out = [];
   const id = [{ text: s.model || "Claude", fg: INK.accent, bold: true }];
   if (EFFORT_ICON[s.modes.effort]) id.push({ text: `  ${EFFORT_ICON[s.modes.effort]}`, fg: EFFORT_INK[s.modes.effort] });
@@ -83,7 +89,12 @@ export function blocks(now, columns) {
     out.push({
       id: "context",
       prio: 8,
-      parts: [{ text: " ", fg: INK.second }, ...contextBar(s.ctxShown, s.ctx.pct, 8), { text: `  ${s.ctx.pct}%`, fg: stateColor(s.ctx.pct), bold: true }, { text: `  ${short(s.ctx.tokens)}`, fg: INK.primary }, { text: `/${short(s.ctx.window)}`, fg: INK.second }],
+      parts: [
+        { text: " ", fg: INK.second },
+        ...contextBar(s.ctxShown, s.ctx.pct, narrow ? 5 : 8),
+        { text: `  ${s.ctx.pct}%`, fg: stateColor(s.ctx.pct), bold: true },
+        ...(narrow ? [] : [{ text: `  ${short(s.ctx.tokens)}`, fg: INK.primary }, { text: `/${short(s.ctx.window)}`, fg: INK.second }]),
+      ],
     });
   }
   out.push(...usageBlocks(nowS));
@@ -337,7 +348,7 @@ export function register(on) {
 function draw($, e, now) {
   const { Box, Text, Link } = $.ui.resolve(e);
   const columns = e.props.bodyColumns ?? 120;
-  const maxPills = Math.max(1, Math.min(2, e.props.maxRows ?? 2));
+  const maxPills = Math.max(1, Math.min(MAX_PILLS, e.props.maxRows ?? MAX_PILLS));
   const inner = columns - 10;
   s.ctxShown = s.modes.reduceMotion ? s.ctx.pct : easeTo(s.ctxShown, s.ctx.pct);
   const pills = pack(blocks(now, columns), inner, maxPills);

@@ -118,6 +118,17 @@ describe("glint mod", () => {
     for (const fact of ["central", "main", "50%", "7d 83%", "2.1.284", "21:30"]) expect(t).toContain(fact);
   });
 
+  test("a phone-width terminal keeps every fact across more pills, with a compact context", async ($, on) => {
+    const w = world(on);
+    await $.session.start(START);
+    await settle(w);
+    const tree = await $.ui.render(ABOVE(52));
+    expect(pillsOf(tree).length).toBeGreaterThan(2);
+    const t = textOf(tree);
+    for (const fact of ["Opus 5.5", "\u{f04c5}", "central", "main", "50%", "①", "5h 41%", "7d 83%", "2.1.284", "●", "21:30"]) expect(t).toContain(fact);
+    expect(t).not.toContain("300K/600K");
+  });
+
   test("one pill, rounded like the status line, when it fits", async ($, on) => {
     const w = world(on);
     await $.session.start(START);
