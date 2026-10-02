@@ -18,6 +18,14 @@ const FLASH_MS = 350;
 const INTRO_MS = 900;
 const SEP = { text: "   ", fg: INK.tert };
 const EFFORT_INK = { low: "#f0be46", medium: "#30d758", high: "#4d9eff", xhigh: "#a78bfa", max: "#d26ef5", ultra: "#2dd7ff" };
+// Two icon sets: plain Unicode that every font draws (the default, so a phone or a
+// font without Nerd glyphs still shows every fact) and the status line's Nerd Font set.
+const ICONS = {
+  plain: { think: "✦", fast: "↯", folder: "", git: "⎇", worktree: "⎇", ctx: "", tag: "v", net: "⇅", warn: "!", user: "@", gauge: ["▲", "◆", "▼"] },
+  nerd: { think: "\uf0eb", fast: "\uf0e7", folder: "\uf07b", git: "\ue725", worktree: "\uf126", ctx: "\uf1c0", tag: "\uf02b", net: "\u{f05a9}", warn: "\uf071", user: "\uf007", gauge: ["\u{f0f86}", "\u{f0f85}", "\u{f04c5}"] },
+};
+const icon = (name) => ICONS[s.icons]?.[name] ?? ICONS.plain[name];
+const withSpace = (i) => (i ? `${i} ` : "");
 const EFFORT_ICON = { low: "\u{f0f86}", medium: "\u{f0f85}", high: "\u{f04c5}", xhigh: "\u{f04c5}", max: "\u{f04c5}", ultra: "\u{f04c5}" };
 
 const s = {
@@ -43,6 +51,7 @@ const s = {
   slow: null,
   demo: null,
   off: false,
+  icons: "plain",
 };
 
 export function prettyModel(id) {
@@ -76,21 +85,21 @@ export function blocks(now, columns) {
   const narrow = columns < NARROW_COLUMNS;
   const out = [];
   const id = [{ text: s.model || "Claude", fg: INK.accent, bold: true }];
-  if (EFFORT_ICON[s.modes.effort]) id.push({ text: `  ${EFFORT_ICON[s.modes.effort]}`, fg: EFFORT_INK[s.modes.effort] });
-  if (s.modes.thinking) id.push({ text: " ", fg: INK.gold });
-  if (s.modes.fast) id.push({ text: " ", fg: INK.second });
+  if (s.modes.effort) id.push({ text: `  ${s.icons === "nerd" && EFFORT_ICON[s.modes.effort] ? EFFORT_ICON[s.modes.effort] : s.modes.effort}`, fg: EFFORT_INK[s.modes.effort] ?? INK.second });
+  if (s.modes.thinking) id.push({ text: ` ${icon("think")}`, fg: INK.gold });
+  if (s.modes.fast) id.push({ text: ` ${icon("fast")}`, fg: INK.second });
   out.push({ id: "identity", prio: 9, parts: id });
-  if (s.git.project) out.push({ id: "project", prio: 8, parts: [{ text: " ", fg: INK.second }, { text: s.git.project, href: s.git.repoUrl ?? undefined }] });
+  if (s.git.project) out.push({ id: "project", prio: 8, parts: [{ text: withSpace(icon("folder")), fg: INK.second }, { text: s.git.project, href: s.git.repoUrl ?? undefined }] });
   if (s.git.branch) {
     const href = s.git.repoUrl ? `${s.git.repoUrl}/tree/${encodeURIComponent(s.git.branch).replace(/%2F/g, "/")}` : undefined;
-    out.push({ id: "git", prio: 7, parts: [{ text: `${s.git.worktree ? "" : ""} `, fg: INK.second }, { text: s.git.branch, href }, ...(s.git.dirty ? [{ text: ` •${s.git.dirty}`, fg: INK.amber }] : [])] });
+    out.push({ id: "git", prio: 7, parts: [{ text: withSpace(icon(s.git.worktree ? "worktree" : "git")), fg: INK.second }, { text: s.git.branch, href }, ...(s.git.dirty ? [{ text: ` •${s.git.dirty}`, fg: INK.amber }] : [])] });
   }
   if (s.ctx.window) {
     out.push({
       id: "context",
       prio: 8,
       parts: [
-        { text: " ", fg: INK.second },
+        { text: withSpace(icon("ctx")), fg: INK.second },
         ...contextBar(s.ctxShown, s.ctx.pct, narrow ? 5 : 8),
         { text: `  ${s.ctx.pct}%`, fg: stateColor(s.ctx.pct), bold: true },
         ...(narrow ? [] : [{ text: `  ${short(s.ctx.tokens)}`, fg: INK.primary }, { text: `/${short(s.ctx.window)}`, fg: INK.second }]),
@@ -108,18 +117,19 @@ function usageBlocks(nowS) {
   const parts = [];
   if (s.account.name) {
     const primary = s.account.preferred && s.account.name === s.account.preferred;
-    const mark = !s.account.preferred ? "" : primary ? "①" : "②";
+    const mark = !s.account.preferred ? icon("user") : primary ? "①" : "②";
     parts.push({ text: `${mark} `, fg: !s.account.preferred ? INK.second : primary ? INK.accent : INK.amber, bold: true });
   }
   const wins = windows(nowS);
   const risky = wins.filter((w) => w.reserve !== null).sort((a, b) => a.reserve - b.reserve)[0];
   if (risky) {
-    const [icon, ink] = risky.reserve >= 25 ? ["\u{f0f86}", STATE.green] : risky.reserve >= 0 ? ["\u{f0f85}", STATE.yellow] : ["\u{f04c5}", STATE.red];
-    parts.push({ text: `${icon} `, fg: ink }, { text: `${risky.reserve >= 0 ? "+" : ""}${risky.reserve}  `, fg: INK.second });
+    const level = risky.reserve >= 25 ? 0 : risky.reserve >= 0 ? 1 : 2;
+    const ink = [STATE.green, STATE.yellow, STATE.red][level];
+    parts.push({ text: `${icon("gauge")[level]} `, fg: ink }, { text: `${risky.reserve >= 0 ? "+" : ""}${risky.reserve}  `, fg: INK.second });
   }
   for (const w of wins) {
     const atRisk = risky && w === risky && w.reserve < 25;
-    if (atRisk && w.reserve < 0) parts.push({ text: " ", fg: STATE.red });
+    if (atRisk && w.reserve < 0) parts.push({ text: `${icon("warn")} `, fg: STATE.red });
     parts.push({ text: `${w.label} `, fg: atRisk ? (w.reserve < 0 ? STATE.red : STATE.yellow) : INK.second, bold: atRisk });
     parts.push({ text: `${w.pct}%`, fg: limitInk(w.pct) });
     if (Number.isFinite(w.resetsAt) && (w.pct >= 80 || (w.reserve !== null && w.reserve < 0))) parts.push({ text: ` ↻${untilText(w.resetsAt, nowS)}`, fg: limitInk(w.pct) });
@@ -135,14 +145,14 @@ function healthBlocks() {
     const behind = s.net.latest && s.net.latest !== s.version;
     const minor = behind && s.net.latest.split(".").slice(0, 2).join(".") === s.version.split(".").slice(0, 2).join(".");
     const ink = !behind ? INK.second : minor ? STATE.yellow : STATE.red;
-    out.push({ id: "version", prio: 3, parts: [{ text: " ", fg: INK.second }, { text: s.version, fg: ink, href: `https://github.com/anthropics/claude-code/releases/tag/v${behind ? s.net.latest : s.version}` }] });
+    out.push({ id: "version", prio: 3, parts: [{ text: icon("tag") === "v" ? "v" : withSpace(icon("tag")), fg: INK.second }, { text: s.version, fg: ink, href: `https://github.com/anthropics/claude-code/releases/tag/v${behind ? s.net.latest : s.version}` }] });
   }
   const stInk = { none: STATE.green, minor: STATE.yellow, major: STATE.orange, critical: STATE.red }[s.net.status] ?? INK.tert;
   if (s.net.status) out.push({ id: "status", prio: 3, parts: [{ text: `●${s.net.status !== "none" && s.net.degraded ? ` ${s.net.degraded}` : ""}`, fg: stInk, href: "https://status.claude.com" }] });
   if (s.net.netMs) {
     const ms = Number(s.net.netMs);
     const ink = s.net.netMs === "down" ? STATE.red : ms <= 300 ? STATE.green : ms <= 1000 ? STATE.yellow : STATE.orange;
-    out.push({ id: "net", prio: 2, parts: [{ text: "\u{f05a9}", fg: ink }] });
+    out.push({ id: "net", prio: 2, parts: [{ text: icon("net"), fg: ink }] });
   }
   return out;
 }
@@ -264,14 +274,16 @@ export function state() {
 export function register(on) {
   on("session.start", async ($, e, next) => {
     const r = await next(e);
-    await $.command.register({ name: "glint", description: "glint pill: on, off, or demo", argumentHint: "on | off | demo" });
+    await $.command.register({ name: "glint", description: "glint pill: on, off, or demo", argumentHint: "on | off | demo | icons nerd | icons plain" });
     s.home = (await $.env.get("HOME")) ?? "";
     s.model = prettyModel(await $.session.model());
     s.version = (await safely(async () => (await $.session.version()).version)) ?? "";
     s.account = (await safely(() => readAccount($, s.home))) ?? s.account;
     const usage = await safely(() => $.session.usage());
     if (usage) applyMeasure(usage, await compactWindow($));
-    s.off = (await $.state.get(PREFS)).value?.on === false;
+    const prefs = (await $.state.get(PREFS)).value;
+    s.off = prefs?.on === false;
+    s.icons = prefs?.icons === "nerd" ? "nerd" : "plain";
     await refresh($);
     const now = await $.clock.now();
     s.introUntil = now + INTRO_MS;
@@ -322,17 +334,23 @@ export function register(on) {
     const arg = e.args.trim();
     if (arg === "off" || arg === "on") {
       s.off = arg === "off";
-      await $.state.set(PREFS, { on: !s.off });
+      await $.state.set(PREFS, { on: !s.off, icons: s.icons });
       if (s.off) stopFrames();
       else animate($, await $.clock.now());
       $.ui.invalidate("ui.render");
       return { text: `glint ${arg}` };
     }
+    if (arg === "icons nerd" || arg === "icons plain") {
+      s.icons = arg.split(" ")[1];
+      await $.state.set(PREFS, { on: !s.off, icons: s.icons });
+      $.ui.invalidate("ui.render");
+      return { text: `glint icons: ${s.icons}` };
+    }
     if (arg === "demo") {
       runDemo($);
       return { text: "glint demo: about 12 seconds" };
     }
-    return { text: "usage: /glint on | off | demo" };
+    return { text: "usage: /glint on | off | demo | icons nerd | icons plain" };
   });
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
