@@ -1,6 +1,6 @@
 {
   "name": "glint",
-  "version": "0.2.5",
+  "version": "0.4.0",
   "description": "glint as a Claude Code mod: a liquid-glass pill above the prompt that grows into a live activity while Claude works.",
   "author": { "name": "Leonardo Candiani" },
   "homepage": "https://github.com/leonardocandiani/glint",

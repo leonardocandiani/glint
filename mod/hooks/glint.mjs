@@ -5,27 +5,30 @@
 // tool or a finished turn and breathes under pressure. It never repeats what Claude Code
 // already prints, and it wraps into a second pill instead of dropping a fact.
 
-import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, pillCells, short, spans, springStep, stateColor, textWidth } from "./pill.mjs";
+import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, pillCells, short, slider, spans, springStep, stateColor, textWidth } from "./pill.mjs";
 import { githubUrl, parseBranch, reserve, untilText } from "./sources.mjs";
+import { AGENDA_DB, CALENDARS_DEFAULT, agendaArgv, agendaView, dayTitle, hhmm, monthGrid, parseAgenda, untilMs } from "./agenda.mjs";
 
 const TTL = { version: 1800, status: 300, net: 60 };
 const MEASURE_FRESH_S = 600;
 
-const PREFS = { plugin: "glint", key: "prefs" };
 const FRAME_MS = 50;
 const REFRESH_MS = 30_000;
 const FLASH_MS = 350;
 const INTRO_MS = 900;
 const SEP = { text: "   ", fg: INK.tert };
 const EFFORT_INK = { low: "#f0be46", medium: "#30d758", high: "#4d9eff", xhigh: "#a78bfa", max: "#d26ef5", ultra: "#2dd7ff" };
-// Two icon sets: plain Unicode that every font draws (the default, so a phone or a
-// font without Nerd glyphs still shows every fact) and the status line's Nerd Font set.
+// Two icon sets: the status line's Nerd Font set (the default) and plain Unicode that
+// every font draws, for a phone or a font without Nerd glyphs (/glint icons plain).
 const ICONS = {
   plain: { think: "✦", fast: "↯", folder: "", git: "⎇", worktree: "⎇", ctx: "", tag: "v", net: "⇅", warn: "!", user: "@", gauge: ["▲", "◆", "▼"] },
   nerd: { think: "\uf0eb", fast: "\uf0e7", folder: "\uf07b", git: "\ue725", worktree: "\uf126", ctx: "\uf1c0", tag: "\uf02b", net: "\u{f05a9}", warn: "\uf071", user: "\uf007", gauge: ["\u{f0f86}", "\u{f0f85}", "\u{f04c5}"] },
 };
 const icon = (name) => ICONS[s.icons]?.[name] ?? ICONS.plain[name];
 const withSpace = (i) => (i ? `${i} ` : "");
+// Nerd glyphs and ① draw wider than the one cell they are counted as and swallow
+// the space after them, so they get two.
+const gap = () => (s.icons === "nerd" ? "  " : " ");
 const EFFORT_ICON = { low: "\u{f0f86}", medium: "\u{f0f85}", high: "\u{f04c5}", xhigh: "\u{f04c5}", max: "\u{f04c5}", ultra: "\u{f04c5}" };
 
 const s = {
@@ -33,7 +36,7 @@ const s = {
   model: "",
   version: "",
   modes: { effort: "", thinking: false, fast: false, reduceMotion: false },
-  git: { project: "", branch: "", dirty: 0, worktree: false, repoUrl: null },
+  git: { project: "", branch: "", dirty: 0, files: [], worktree: false, repoUrl: null, upstream: false, ahead: 0, behind: 0, last: null },
   account: { name: "", preferred: "" },
   measure: null,
   net: { latest: "", status: "", degraded: "", netMs: "" },
@@ -51,8 +54,16 @@ const s = {
   slow: null,
   demo: null,
   off: false,
-  icons: "plain",
+  icons: "nerd",
+  agenda: null,
+  calendars: CALENDARS_DEFAULT,
+  warned: new Set(),
 };
+const SOON_MS = 15 * 60_000;
+// The pill names an event only when it is on or about to be; the rest of the day and the
+// month live in the clock's card.
+const NEAR_MS = 60 * 60_000;
+const WARN_MS = 10 * 60_000;
 
 export function prettyModel(id) {
   const m = /claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(id ?? "");
@@ -80,19 +91,44 @@ function windows(nowS) {
 const NARROW_COLUMNS = 90;
 const MAX_PILLS = 4;
 
+// "40s", "12min", "3h", "2 dias"
+function ago(sec) {
+  if (sec < 60) return `${Math.max(0, sec)}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}min`;
+  if (sec < 86_400) return `${Math.floor(sec / 3600)}h`;
+  const d = Math.floor(sec / 86_400);
+  return `${d} ${d === 1 ? "dia" : "dias"}`;
+}
+
+function repoCard(nowS) {
+  if (!s.git.branch) return null;
+  const g = s.git;
+  const lines = [[{ text: g.repoUrl ? g.repoUrl.replace(/^https:\/\//, "") : g.project, fg: INK.primary, bold: true }]];
+  const sync = [g.ahead ? `${g.ahead} à frente` : "", g.behind ? `${g.behind} atrás` : ""].filter(Boolean).join(", ");
+  lines.push([{ text: withSpace(icon(g.worktree ? "worktree" : "git")), fg: INK.second }, { text: g.branch, fg: INK.primary }, { text: sync ? `   ${sync} do remoto` : g.upstream ? "   em dia com o remoto" : g.repoUrl ? "   branch ainda não publicada" : "   sem remoto", fg: sync ? INK.amber : INK.tert }]);
+  if (g.last) lines.push([{ text: `${g.last.hash} `, fg: INK.tert }, { text: clip(g.last.subject, 52), fg: INK.second }, { text: `  há ${ago(nowS - g.last.at)}`, fg: INK.tert }]);
+  if (g.dirty) {
+    lines.push([{ text: `${g.dirty} ${g.dirty === 1 ? "arquivo alterado" : "arquivos alterados"}`, fg: INK.amber }]);
+    for (const f of g.files.slice(0, 4)) lines.push([{ text: `  ${f.code} `, fg: INK.amber }, { text: clip(f.path, 56), fg: INK.second }]);
+    if (g.files.length > 4) lines.push([{ text: `  e mais ${g.files.length - 4}`, fg: INK.tert }]);
+  }
+  return lines;
+}
+
 export function blocks(now, columns) {
   const nowS = Math.floor(now / 1000);
   const narrow = columns < NARROW_COLUMNS;
   const out = [];
   const id = [{ text: s.model || "Claude", fg: INK.accent, bold: true }];
   if (s.modes.effort) id.push({ text: `  ${s.icons === "nerd" && EFFORT_ICON[s.modes.effort] ? EFFORT_ICON[s.modes.effort] : s.modes.effort}`, fg: EFFORT_INK[s.modes.effort] ?? INK.second });
-  if (s.modes.thinking) id.push({ text: ` ${icon("think")}`, fg: INK.gold });
-  if (s.modes.fast) id.push({ text: ` ${icon("fast")}`, fg: INK.second });
+  if (s.modes.thinking) id.push({ text: `${gap()}${icon("think")}`, fg: INK.gold });
+  if (s.modes.fast) id.push({ text: `${gap()}${icon("fast")}`, fg: INK.second });
   out.push({ id: "identity", prio: 9, parts: id });
-  if (s.git.project) out.push({ id: "project", prio: 8, parts: [{ text: withSpace(icon("folder")), fg: INK.second }, { text: s.git.project, href: s.git.repoUrl ?? undefined }] });
+  const repo = repoCard(nowS);
+  if (s.git.project) out.push({ id: "project", prio: 8, card: repo, parts: [{ text: withSpace(icon("folder")), fg: INK.second }, { text: s.git.project, href: s.git.repoUrl ?? undefined }] });
   if (s.git.branch) {
     const href = s.git.repoUrl ? `${s.git.repoUrl}/tree/${encodeURIComponent(s.git.branch).replace(/%2F/g, "/")}` : undefined;
-    out.push({ id: "git", prio: 7, parts: [{ text: withSpace(icon(s.git.worktree ? "worktree" : "git")), fg: INK.second }, { text: s.git.branch, href }, ...(s.git.dirty ? [{ text: ` •${s.git.dirty}`, fg: INK.amber }] : [])] });
+    out.push({ id: "git", prio: 7, card: repo, parts: [{ text: withSpace(icon(s.git.worktree ? "worktree" : "git")), fg: INK.second }, { text: s.git.branch, href }, ...(s.git.dirty ? [{ text: ` •${s.git.dirty}`, fg: INK.amber }] : [])] });
   }
   if (s.ctx.window) {
     out.push({
@@ -109,7 +145,9 @@ export function blocks(now, columns) {
   out.push(...usageBlocks(nowS));
   out.push(...healthBlocks());
   const d = new Date(now);
-  out.push({ id: "clock", prio: 1, parts: [{ text: `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`, fg: INK.second }] });
+  const stamp = { text: `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`, fg: INK.second };
+  const v = s.agenda ? agendaView(s.agenda, now) : null;
+  out.push({ id: "clock", prio: v ? 6 : 1, parts: [...(v ? agendaParts(v, now) : []), stamp], card: v ? agendaCard(v, now) : null });
   return out;
 }
 
@@ -118,14 +156,14 @@ function usageBlocks(nowS) {
   if (s.account.name) {
     const primary = s.account.preferred && s.account.name === s.account.preferred;
     const mark = !s.account.preferred ? icon("user") : primary ? "①" : "②";
-    parts.push({ text: `${mark} `, fg: !s.account.preferred ? INK.second : primary ? INK.accent : INK.amber, bold: true });
+    parts.push({ text: `${mark}  `, fg: !s.account.preferred ? INK.second : primary ? INK.accent : INK.amber, bold: true });
   }
   const wins = windows(nowS);
   const risky = wins.filter((w) => w.reserve !== null).sort((a, b) => a.reserve - b.reserve)[0];
   if (risky) {
     const level = risky.reserve >= 25 ? 0 : risky.reserve >= 0 ? 1 : 2;
     const ink = [STATE.green, STATE.yellow, STATE.red][level];
-    parts.push({ text: `${icon("gauge")[level]} `, fg: ink }, { text: `${risky.reserve >= 0 ? "+" : ""}${risky.reserve}  `, fg: INK.second });
+    parts.push({ text: `${icon("gauge")[level]}${gap()}`, fg: ink }, { text: `${risky.reserve >= 0 ? "+" : ""}${risky.reserve}  `, fg: INK.second });
   }
   for (const w of wins) {
     const atRisk = risky && w === risky && w.reserve < 25;
@@ -136,7 +174,89 @@ function usageBlocks(nowS) {
     parts.push({ text: "  " });
   }
   if (parts.length && parts[parts.length - 1].text === "  ") parts.pop();
-  return parts.length ? [{ id: "usage", prio: 6, parts }] : [];
+  return parts.length ? [{ id: "usage", prio: 6, parts, card: usageCard(wins, nowS) }] : [];
+}
+
+function usageCard(wins, nowS) {
+  if (!wins.length) return null;
+  const lines = [[{ text: "Cota", fg: INK.primary, bold: true }, ...(s.account.name ? [{ text: `   conta ${s.account.name}`, fg: INK.tert }] : [])]];
+  for (const w of wins) {
+    const line = [{ text: `${w.label.padEnd(3)} `, fg: INK.second }, ...slider(w.pct, 12, limitInk(w.pct)), { text: `  ${String(w.pct).padStart(3)}%`, fg: limitInk(w.pct), bold: true }];
+    if (Number.isFinite(w.resetsAt)) line.push({ text: `   volta em ${untilText(w.resetsAt, nowS)}`, fg: INK.second });
+    if (w.reserve !== null) line.push({ text: `   reserva ${w.reserve >= 0 ? "+" : ""}${w.reserve}`, fg: w.reserve < 0 ? STATE.red : w.reserve < 25 ? STATE.yellow : INK.tert });
+    lines.push(line);
+  }
+  return lines;
+}
+
+const clip = (t, n) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+
+// The calendar rides in the clock block, in front of the date and time it shares: what
+// is on now with a bar to its end, or what starts within the hour; otherwise nothing.
+function agendaParts(v, now) {
+  const ev = v.now ?? (v.next && v.next.start - now <= NEAR_MS ? v.next : null);
+  if (!ev) return [];
+  const ink = ev.color ?? INK.accent;
+  const parts = [{ text: "● ", fg: ink }];
+  if (v.now) {
+    const pct = Math.round(((now - ev.start) / Math.max(1, ev.end - ev.start)) * 100);
+    parts.push({ text: clip(ev.title, 18), fg: INK.primary }, { text: " " }, ...slider(pct, 5, ink), { text: ` ${untilMs(ev.end - now)}`, fg: INK.second });
+  } else if (ev.start - now <= SOON_MS) {
+    parts.push({ text: `${clip(ev.title, 18)} em ${untilMs(ev.start - now)}`, fg: STATE.orange, bold: true });
+  } else {
+    parts.push({ text: `${hhmm(ev.start)} `, fg: INK.second }, { text: clip(ev.title, 18), fg: INK.primary });
+  }
+  parts.push({ text: "   " });
+  return parts;
+}
+
+function agendaCard(v, now) {
+  const list = dayList(v, now);
+  const month = monthGrid(now, s.agenda ?? [], { today: INK.accent, busy: INK.primary, past: INK.tert, free: INK.second, head: INK.second });
+  return { lines: sideBySide(month, list, 24), compact: list };
+}
+
+function sideBySide(left, right, gutter) {
+  const n = Math.max(left.length, right.length);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const l = left[i] ?? [];
+    out.push([...l, { text: " ".repeat(Math.max(1, gutter - textWidth(l))) }, ...(right[i] ?? [])]);
+  }
+  return out;
+}
+
+function dayList(v, now) {
+  const lines = [[{ text: dayTitle(now), fg: INK.primary, bold: true }]];
+  const width = Math.min(34, Math.max(20, ...v.today.map((e) => e.title.length)));
+  if (!v.today.length) lines.push([{ text: "nada na sua agenda hoje", fg: INK.tert }]);
+  for (const e of v.today) {
+    const past = e.end <= now;
+    const live = v.now && e.id === v.now.id;
+    const ink = past ? INK.tert : (e.color ?? INK.second);
+    const right = live ? `agora, até ${hhmm(e.end)}` : past ? "" : e.allDay ? "o dia todo" : `em ${untilMs(e.start - now)}`;
+    lines.push([
+      { text: e.allDay ? " dia " : `${hhmm(e.start)} `, fg: ink },
+      { text: past ? " ✓ " : live ? " ● " : " ○ ", fg: ink },
+      { text: clip(e.title, 34).padEnd(width), fg: past ? INK.tert : INK.primary, bold: Boolean(live) },
+      { text: right ? `   ${right}` : "", fg: INK.second },
+    ]);
+  }
+  if (v.tomorrow.length) {
+    lines.push([{ text: "─".repeat(width + 9), fg: INK.tert }]);
+    lines.push([{ text: "amanhã", fg: INK.tert }]);
+    for (const e of v.tomorrow.slice(0, 3)) lines.push([{ text: `${e.allDay ? " dia " : `${hhmm(e.start)} `}`, fg: e.color ?? INK.second }, { text: ` ○ ${clip(e.title, 34)}`, fg: INK.second }]);
+  }
+  return lines;
+}
+
+// A toast once per event, ten minutes before it starts.
+function warnSoon($, now) {
+  for (const e of s.agenda ?? []) {
+    if (e.allDay || e.start <= now || e.start - now > WARN_MS || s.warned.has(e.id)) continue;
+    s.warned.add(e.id);
+    $.ui.toast(`${e.title} começa em ${untilMs(e.start - now)} (${hhmm(e.start)})`);
+  }
 }
 
 function healthBlocks() {
@@ -145,16 +265,31 @@ function healthBlocks() {
     const behind = s.net.latest && s.net.latest !== s.version;
     const minor = behind && s.net.latest.split(".").slice(0, 2).join(".") === s.version.split(".").slice(0, 2).join(".");
     const ink = !behind ? INK.second : minor ? STATE.yellow : STATE.red;
-    out.push({ id: "version", prio: 3, parts: [{ text: icon("tag") === "v" ? "v" : withSpace(icon("tag")), fg: INK.second }, { text: s.version, fg: ink, href: `https://github.com/anthropics/claude-code/releases/tag/v${behind ? s.net.latest : s.version}` }] });
+    const card = [[{ text: "Claude Code", fg: INK.primary, bold: true }, { text: `   instalada ${s.version}`, fg: INK.second }]];
+    if (behind) card.push([{ text: "nova versão ", fg: INK.second }, { text: s.net.latest, fg: ink, bold: true }], [{ text: "atualize com ", fg: INK.tert }, { text: "claude update", fg: INK.primary }]);
+    else if (s.net.latest) card.push([{ text: "você está na versão mais nova", fg: STATE.green }]);
+    card.push([{ text: "o que mudou: ", fg: INK.tert }, { text: `github.com/anthropics/claude-code/releases`, fg: INK.second }]);
+    out.push({ id: "version", prio: 3, card, parts: [{ text: icon("tag") === "v" ? "v" : withSpace(icon("tag")), fg: INK.second }, { text: s.version, fg: ink, href: `https://github.com/anthropics/claude-code/releases/tag/v${behind ? s.net.latest : s.version}` }] });
   }
   const stInk = { none: STATE.green, minor: STATE.yellow, major: STATE.orange, critical: STATE.red }[s.net.status] ?? INK.tert;
-  if (s.net.status) out.push({ id: "status", prio: 3, parts: [{ text: `●${s.net.status !== "none" && s.net.degraded ? ` ${s.net.degraded}` : ""}`, fg: stInk, href: "https://status.claude.com" }] });
+  const health = healthCard(stInk);
+  if (s.net.status) out.push({ id: "status", prio: 3, card: health, parts: [{ text: `●${s.net.status !== "none" && s.net.degraded ? ` ${s.net.degraded}` : ""}`, fg: stInk, href: "https://status.claude.com" }] });
   if (s.net.netMs) {
     const ms = Number(s.net.netMs);
     const ink = s.net.netMs === "down" ? STATE.red : ms <= 300 ? STATE.green : ms <= 1000 ? STATE.yellow : STATE.orange;
-    out.push({ id: "net", prio: 2, parts: [{ text: icon("net"), fg: ink }] });
+    out.push({ id: "net", prio: 2, card: health, parts: [{ text: icon("net"), fg: ink }] });
   }
   return out;
+}
+
+const STATUS_TEXT = { none: "tudo operando", minor: "instabilidade leve", major: "instabilidade forte", critical: "fora do ar" };
+
+function healthCard(stInk) {
+  const lines = [[{ text: "Claude", fg: INK.primary, bold: true }, { text: "   status.claude.com", fg: INK.tert }]];
+  if (s.net.status) lines.push([{ text: "● ", fg: stInk }, { text: STATUS_TEXT[s.net.status] ?? s.net.status, fg: stInk, bold: s.net.status !== "none" }]);
+  for (const name of s.net.degraded ? s.net.degraded.split(",").slice(0, 4) : []) lines.push([{ text: "  afetado: ", fg: INK.tert }, { text: name, fg: INK.primary }]);
+  if (s.net.netMs) lines.push([{ text: "API ", fg: INK.second }, { text: s.net.netMs === "down" ? "sem resposta" : `${s.net.netMs} ms`, fg: s.net.netMs === "down" ? STATE.red : INK.primary }]);
+  return lines;
 }
 
 const joinWidth = (bs) => bs.reduce((n, b, i) => n + textWidth(b.parts) + (i ? 3 : 0), 0);
@@ -178,7 +313,10 @@ export function pack(all, inner, maxPills) {
 }
 
 function segmentsOf(pillBlocks) {
-  return pillBlocks.flatMap((b, i) => (i ? [SEP, ...b.parts] : b.parts));
+  return pillBlocks.flatMap((b, i) => {
+    const own = b.parts.map((p) => ({ ...p, block: b.id }));
+    return i ? [SEP, ...own] : own;
+  });
 }
 
 const worstPressure = (nowS) => Math.max(s.ctx.pct, ...windows(nowS).map((w) => w.pct));
@@ -264,6 +402,9 @@ async function refresh($) {
   if (modes) s.modes = modes;
   if (net) s.net = net;
   s.measure = (await safely(() => readMeasure($, s.home, s.account.name, nowS))) ?? s.measure;
+  const agenda = await safely(() => readAgenda($, s.home, nowS * 1000, s.calendars));
+  if (agenda !== undefined) s.agenda = agenda;
+  warnSoon($, nowS * 1000);
   $.ui.invalidate("ui.render");
 }
 
@@ -281,9 +422,11 @@ export function register(on) {
     s.account = (await safely(() => readAccount($, s.home))) ?? s.account;
     const usage = await safely(() => $.session.usage());
     if (usage) applyMeasure(usage, await compactWindow($));
-    const prefs = (await $.state.get(PREFS)).value;
+    // $.store, not $.state: $.state lives one session, and a choice made with
+    // /glint has to hold in the next one.
+    const prefs = await $.store.get("prefs");
     s.off = prefs?.on === false;
-    s.icons = prefs?.icons === "nerd" ? "nerd" : "plain";
+    s.icons = prefs?.icons === "plain" ? "plain" : "nerd";
     await refresh($);
     const now = await $.clock.now();
     s.introUntil = now + INTRO_MS;
@@ -334,7 +477,7 @@ export function register(on) {
     const arg = e.args.trim();
     if (arg === "off" || arg === "on") {
       s.off = arg === "off";
-      await $.state.set(PREFS, { on: !s.off, icons: s.icons });
+      await $.store.set("prefs", { on: !s.off, icons: s.icons });
       if (s.off) stopFrames();
       else animate($, await $.clock.now());
       $.ui.invalidate("ui.render");
@@ -342,7 +485,7 @@ export function register(on) {
     }
     if (arg === "icons nerd" || arg === "icons plain") {
       s.icons = arg.split(" ")[1];
-      await $.state.set(PREFS, { on: !s.off, icons: s.icons });
+      await $.store.set("prefs", { on: !s.off, icons: s.icons });
       $.ui.invalidate("ui.render");
       return { text: `glint icons: ${s.icons}` };
     }
@@ -366,27 +509,103 @@ export function register(on) {
 function draw($, e, now) {
   const { Box, Text, Link } = $.ui.resolve(e);
   const columns = e.props.bodyColumns ?? 120;
-  const maxPills = Math.max(1, Math.min(MAX_PILLS, e.props.maxRows ?? MAX_PILLS));
-  const inner = columns - 10;
+  // A blank row above keeps the pill off the text over it, when the rows allow it.
+  const rowsFree = e.props.maxRows ?? MAX_PILLS + 1;
+  const top = rowsFree >= 2 ? 1 : 0;
+  const maxPills = Math.max(1, Math.min(MAX_PILLS, rowsFree - top));
+  const inner = columns - 8;
   s.ctxShown = s.modes.reduceMotion ? s.ctx.pct : easeTo(s.ctxShown, s.ctx.pct);
   const pills = pack(blocks(now, columns), inner, maxPills);
+  const cards = [];
+  const cardRows = Math.max(0, rowsFree - top - pills.length);
   const rows = pills.map((pb, i) => {
     const segs = segmentsOf(pb);
-    s.targets[i] = Math.min(columns - 6, textWidth(segs) + 4);
+    s.targets[i] = Math.min(columns - 4, textWidth(segs) + 4);
     const intro = now < s.introUntil ? Math.max(0.15, 1 - (s.introUntil - now) / INTRO_MS) : 1;
     const goal = s.targets[i] * intro;
     s.widths[i] = s.modes.reduceMotion || s.widths[i] === undefined ? goal : springStep(s.widths[i], goal);
     if (now >= s.introUntil && Math.abs(s.widths[i] - s.targets[i]) < 0.5) s.widths[i] = s.targets[i];
     const cells = pillCells(segs, s.widths[i], look(now, i, s.widths[i]));
-    const middle = spans(cells).map((p, k) => {
+    const withCard = new Map(pb.filter((b) => b.card).map((b) => [b.id, b.card]));
+    const middle = [];
+    let col = 2;
+    let group = null;
+    spans(cells).forEach((p, k) => {
       const t = Text({ key: `t${k}`, color: p.fg, backgroundColor: p.bg, bold: p.bold, children: p.text });
-      return p.href ? Link({ key: `l${k}`, href: p.href, children: [t] }) : t;
+      const el = p.href ? Link({ key: `l${k}`, href: p.href, children: [t] }) : t;
+      if (p.block && withCard.has(p.block)) {
+        if (!group || group.id !== p.block) {
+          group = { id: p.block, children: [] };
+          middle.push(group);
+          const card = cardBox($, e, p.block, withCard.get(p.block), col, columns, cardRows);
+          if (card) cards.push(card);
+        }
+        group.children.push(el);
+      } else {
+        group = null;
+        middle.push(el);
+      }
+      col += p.w;
     });
+    for (let k = 0; k < middle.length; k++) {
+      const g = middle[k];
+      if (g.id) middle[k] = Box({ key: `hv-${g.id}`, flexDirection: "row", hover: { scope: `glint-${g.id}` }, children: g.children });
+    }
     return Box({ key: `pill${i}`, flexDirection: "row", children: [Text({ key: "cl", color: cells[0]?.bg, children: CAP_L }), ...middle, Text({ key: "cr", color: cells[cells.length - 1]?.bg, children: CAP_R })] });
   });
   s.widths.length = pills.length;
   s.targets.length = pills.length;
-  return Box({ flexDirection: "column", paddingX: 1, children: rows });
+  return Box({ flexDirection: "column", paddingX: 1, paddingTop: top, children: [...cards, ...rows] });
+}
+
+// Cuts a card row to `max` cells, so a card never runs past the band and wraps into
+// rows it was not given.
+function clipLine(segs, max) {
+  if (textWidth(segs) <= max) return segs;
+  const out = [];
+  let used = 0;
+  for (const seg of segs) {
+    let text = "";
+    for (const ch of seg.text) {
+      const w = textWidth([{ text: ch }]);
+      if (used + w > max - 1) {
+        out.push({ ...seg, text: `${text}…` });
+        return out;
+      }
+      text += ch;
+      used += w;
+    }
+    out.push({ ...seg, text });
+  }
+  return out;
+}
+
+// A block's card: drawn hidden above the pills and revealed while the pointer is on the
+// block. The band clips anything placed outside its rows, so the card sits in them and
+// the band grows upward for as long as the hover lasts.
+function cardBox($, e, id, card, col, columns, rowsFree) {
+  const { Box, Text } = $.ui.resolve(e);
+  const room = rowsFree - 2;
+  // A card may carry a compact form for a band too short for the full one.
+  const full = Array.isArray(card) ? card : card?.lines;
+  const lines = full && full.length > room && card.compact ? card.compact : full;
+  if (!lines?.length || room < 1) return null;
+  const max = Math.max(8, columns - 6);
+  const shown = lines.slice(0, room).map((l) => clipLine(l, max));
+  const width = Math.max(...shown.map((l) => textWidth(l))) + 4;
+  const left = Math.max(0, Math.min(col - 2, columns - 2 - width));
+  return Box({
+    key: `card-${id}`,
+    flexDirection: "column",
+    alignSelf: "flex-start",
+    marginLeft: left,
+    borderStyle: "round",
+    borderColor: INK.tert,
+    paddingX: 1,
+    display: "none",
+    hover: { display: "flex", scope: `glint-${id}` },
+    children: shown.map((l, i) => Box({ key: `r${i}`, flexDirection: "row", children: l.map((seg, k) => Text({ key: `s${k}`, color: seg.fg, backgroundColor: seg.bg, bold: seg.bold, children: seg.text })) })),
+  });
 }
 
 // A scripted run of every state, for screenshots and for checking the motion without
@@ -419,6 +638,14 @@ function runDemo($) {
 // Sources: the same places the shell status line reads. The $ calls live in this file
 // because a mod may only hand $ to functions declared beside it.
 
+// The Apple calendar, from the Central's database; null where the Central is not.
+async function readAgenda($, home, nowMs, calendars) {
+  const db = `${home}/${AGENDA_DB}`;
+  if (!(await $.fs.exists(db))) return null;
+  const r = await $.process.run(agendaArgv(db, nowMs), { timeoutMs: 3000 });
+  return r.exitCode === 0 ? parseAgenda(r.stdout, calendars) : null;
+}
+
 async function readGit($) {
   const cwd = await $.session.cwd();
   const top = await $.process.run(["git", "rev-parse", "--show-toplevel", "--git-dir", "--git-common-dir"], { cwd, timeoutMs: 3000 });
@@ -427,10 +654,26 @@ async function readGit($) {
   const abs = (p) => (p.startsWith("/") ? p : `${cwd}/${p}`);
   const worktree = abs(gitDir) !== abs(commonDir);
   const project = worktree ? base(abs(commonDir).replace(/\/\.git\/?$/, "")) : base(root);
-  const st = await $.process.run(["git", "status", "--porcelain", "-b"], { cwd, timeoutMs: 3000 });
+  const [st, remote, log] = await Promise.all([
+    $.process.run(["git", "status", "--porcelain", "-b"], { cwd, timeoutMs: 3000 }),
+    $.process.run(["git", "remote", "get-url", "origin"], { cwd, timeoutMs: 3000 }),
+    $.process.run(["git", "log", "-1", "--format=%h%x1f%s%x1f%ct"], { cwd, timeoutMs: 3000 }),
+  ]);
   const [head, ...rest] = st.stdout.split("\n");
-  const remote = await $.process.run(["git", "remote", "get-url", "origin"], { cwd, timeoutMs: 3000 });
-  return { project, branch: parseBranch(head), dirty: rest.filter(Boolean).length, worktree, repoUrl: githubUrl(remote.stdout.trim()) };
+  const files = rest.filter(Boolean).map((l) => ({ code: l.slice(0, 2).trim() || "?", path: l.slice(3) }));
+  const [hash, subject, when] = log.exitCode === 0 ? log.stdout.trim().split("\x1f") : [];
+  return {
+    project,
+    branch: parseBranch(head),
+    dirty: files.length,
+    files,
+    worktree,
+    repoUrl: githubUrl(remote.stdout.trim()),
+    upstream: head.includes("..."),
+    ahead: Number(/ahead (\d+)/.exec(head)?.[1] ?? 0),
+    behind: Number(/behind (\d+)/.exec(head)?.[1] ?? 0),
+    last: hash ? { hash, subject, at: Number(when) } : null,
+  };
 }
 
 async function readModes($) {

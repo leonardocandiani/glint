@@ -15,7 +15,9 @@ const hex = (c) => `#${clamp(c).map((v) => v.toString(16).padStart(2, "0")).join
 const rgb = (h) => [1, 3, 5].map((i) => Number.parseInt(h.slice(i, i + 2), 16));
 
 // Terminal cells a character takes: 0 for combining marks and selectors, 2 for wide
-// scripts and emoji, 1 otherwise (Nerd Font icons included).
+// scripts and emoji, 1 otherwise. Nerd Font icons (private use) and circled digits like
+// ① are budgeted as 2: some terminals draw them across two cells, and a pill measured
+// at one cell each ran past the edge and wrapped its cap onto the next line.
 export function cellWidth(ch) {
   const c = ch.codePointAt(0);
   if ((c >= 0x300 && c <= 0x36f) || (c >= 0x200b && c <= 0x200f) || (c >= 0xfe00 && c <= 0xfe0f)) return 0;
@@ -28,7 +30,10 @@ export function cellWidth(ch) {
     (c >= 0xff00 && c <= 0xff60) ||
     (c >= 0xffe0 && c <= 0xffe6) ||
     (c >= 0x1f300 && c <= 0x1faff) ||
-    (c >= 0x20000 && c <= 0x3fffd)
+    (c >= 0x20000 && c <= 0x3fffd) ||
+    (c >= 0x2460 && c <= 0x24ff) ||
+    (c >= 0xe000 && c <= 0xf8ff) ||
+    (c >= 0xf0000 && c <= 0xffffd)
   ) return 2;
   return 1;
 }
@@ -69,7 +74,7 @@ export function glassAt(k, n, look) {
 // so the pill can grow and shrink like a spring without re-laying its content out.
 export function pillCells(segments, width, look) {
   const flat = [];
-  for (const s of segments) for (const ch of s.text) flat.push({ ch, w: cellWidth(ch), fg: s.fg ?? INK.primary, bold: Boolean(s.bold), href: s.href });
+  for (const s of segments) for (const ch of s.text) flat.push({ ch, w: cellWidth(ch), fg: s.fg ?? INK.primary, bold: Boolean(s.bold), href: s.href, block: s.block });
   const inner = Math.max(1, Math.round(width) - 4);
   let used = 0;
   let body = [];
@@ -107,13 +112,16 @@ export function cellsWidth(cells) {
   return cells.reduce((n, c) => n + c.w, 0);
 }
 
-// Consecutive cells with the same style and link become one span, which keeps the tree small.
+// Consecutive cells with the same style, link and block become one span, which keeps the
+// tree small; the block lets the drawing wrap each block in its own hover area.
 export function spans(cells) {
   const out = [];
   for (const c of cells) {
     const last = out[out.length - 1];
-    if (last && last.fg === c.fg && last.bg === c.bg && last.bold === c.bold && last.href === c.href) last.text += c.ch;
-    else out.push({ text: c.ch, fg: c.fg, bg: c.bg, bold: c.bold, href: c.href });
+    if (last && last.fg === c.fg && last.bg === c.bg && last.bold === c.bold && last.href === c.href && last.block === c.block) {
+      last.text += c.ch;
+      last.w += c.w;
+    } else out.push({ text: c.ch, w: c.w, fg: c.fg, bg: c.bg, bold: c.bold, href: c.href, block: c.block });
   }
   return out;
 }
@@ -134,16 +142,19 @@ export function short(n) {
   return String(n);
 }
 
-// A thin liquid bar like the status line's slider: heavy line where it is full, a half
-// stroke at the edge, so a tween slides by half cells instead of jumping a whole cell.
 export function contextBar(pctShown, pct, cells) {
-  const color = stateColor(pct);
-  const halves = Math.round((Math.max(0, Math.min(100, pctShown)) * cells * 2) / 100);
+  return slider(pctShown, cells, stateColor(pct));
+}
+
+// The status line's slider: heavy line up to a knob ● riding the fill, thin track after.
+export function slider(pctShown, cells, color) {
+  const shown = Math.max(0, Math.min(100, pctShown));
+  let knob = Math.round((shown * cells) / 100);
+  if (shown > 0 && knob === 0) knob = 1;
   const out = [];
-  for (let i = 0; i < cells; i++) {
-    const h = halves - i * 2;
-    if (h >= 2) out.push({ text: "━", fg: color });
-    else if (h === 1) out.push({ text: "╸", fg: color });
+  for (let i = 1; i <= cells; i++) {
+    if (i < knob) out.push({ text: "━", fg: color });
+    else if (i === knob) out.push({ text: "●", fg: color });
     else out.push({ text: "─", fg: INK.tert });
   }
   return out;
