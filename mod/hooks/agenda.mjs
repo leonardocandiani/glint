@@ -9,7 +9,7 @@ export const CALENDARS_DEFAULT = ["Agenda Léo", "Leonardo Candiani - Gmail"];
 const WEEKDAYS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 const pad2 = (n) => String(n).padStart(2, "0");
-const norm = (v) => String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("pt-BR");
+export const norm = (v) => String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("pt-BR");
 
 export function startOfDay(ms, plusDays = 0) {
   const d = new Date(ms);
@@ -41,11 +41,15 @@ function monthBounds(ms) {
   return [new Date(d.getFullYear(), d.getMonth(), 1).getTime(), new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime()];
 }
 
-// The sqlite3 command that reads the month (and tomorrow, when it falls in the next one).
-export function agendaArgv(db, nowMs) {
+// The month, plus tomorrow when it falls in the next one: what the pill and the card read.
+export function agendaWindow(nowMs) {
   const [first, next] = monthBounds(nowMs);
-  const from = Math.min(first, startOfDay(nowMs));
-  const to = Math.max(next, startOfDay(nowMs, 2));
+  return [Math.min(first, startOfDay(nowMs)), Math.max(next, startOfDay(nowMs, 2))];
+}
+
+// The sqlite3 command that reads that window from the Central.
+export function agendaArgv(db, nowMs) {
+  const [from, to] = agendaWindow(nowMs);
   const sql =
     "select id, inicio, fim, titulo, calendario, calendario_cor as cor, link, dia_inteiro as diaInteiro " +
     `from agenda where inicio < ${to} and coalesce(fim, inicio) >= ${from} order by inicio`;

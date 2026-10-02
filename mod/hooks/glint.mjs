@@ -7,7 +7,8 @@
 
 import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, pillCells, short, slider, spans, springStep, stateColor, textWidth } from "./pill.mjs";
 import { githubUrl, parseBranch, reserve, untilText } from "./sources.mjs";
-import { AGENDA_DB, CALENDARS_DEFAULT, agendaArgv, agendaView, dayTitle, hhmm, monthGrid, parseAgenda, untilMs } from "./agenda.mjs";
+import { AGENDA_DB, CALENDARS_DEFAULT, agendaArgv, agendaView, agendaWindow, dayTitle, hhmm, monthGrid, norm, parseAgenda, untilMs } from "./agenda.mjs";
+import { BODY_CALENDARS, BODY_HOME, BODY_PRINCIPAL, CALDAV_BASE, authHeader, calendarData, dedupeSort, eventsBody, failureOf, hrefOf, parseCalendars, parseEnvFile, parseIcs, pickCalendars, trusted } from "./caldav.mjs";
 
 const TTL = { version: 1800, status: 300, net: 60 };
 const MEASURE_FRESH_S = 600;
@@ -416,7 +417,7 @@ export function state() {
 export function register(on) {
   on("session.start", async ($, e, next) => {
     const r = await next(e);
-    await $.command.register({ name: "glint", description: "glint pill: on, off, or demo", argumentHint: "on | off | demo | icons nerd | icons plain" });
+    await $.command.register({ name: "glint", description: "glint pill: on, off, or demo", argumentHint: "on | off | demo | icons nerd | icons plain | agenda" });
     s.home = (await $.env.get("HOME")) ?? "";
     s.model = prettyModel(await $.session.model());
     s.version = (await safely(async () => (await $.session.version()).version)) ?? "";
@@ -494,7 +495,8 @@ export function register(on) {
       runDemo($);
       return { text: "glint demo: about 12 seconds" };
     }
-    return { text: "usage: /glint on | off | demo | icons nerd | icons plain" };
+    if (arg === "agenda") return { text: `glint agenda: ${caldav.status || (s.agenda ? "banco da Central" : "sem fonte")}` };
+    return { text: "usage: /glint on | off | demo | icons nerd | icons plain | agenda" };
   });
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
@@ -639,12 +641,84 @@ function runDemo($) {
 // Sources: the same places the shell status line reads. The $ calls live in this file
 // because a mod may only hand $ to functions declared beside it.
 
-// The Apple calendar, from the Central's database; null where the Central is not.
+// The Apple calendar: from the Central's database where there is one, otherwise straight
+// from iCloud over CalDAV when an Apple ID and an app password are set.
 async function readAgenda($, home, nowMs, calendars) {
   const db = `${home}/${AGENDA_DB}`;
-  if (!(await $.fs.exists(db))) return null;
+  if (!(await $.fs.exists(db))) return readCaldav($, home, nowMs, calendars);
   const r = await $.process.run(agendaArgv(db, nowMs), { timeoutMs: 3000 });
   return r.exitCode === 0 ? parseAgenda(r.stdout, calendars) : null;
+}
+
+const CALDAV_TTL_MS = 5 * 60_000;
+const CALDAV_RETRY_MS = 60_000;
+const NO_EXPAND = [400, 403, 415, 501];
+const CALDAV_FILE = ".config/glint/caldav.env";
+const caldav = { home: null, calendars: null, at: 0, pending: false, status: "" };
+
+// The Apple ID and app-specific password: the environment first, then the file.
+async function caldavCredentials($, home) {
+  let email = await $.env.get("APPLE_ID_EMAIL");
+  let password = await $.env.get("APPLE_APP_PASSWORD");
+  if (!email || !password) {
+    const file = parseEnvFile(await $.fs.read(`${home}/${CALDAV_FILE}`).catch(() => ""));
+    email = email || file.APPLE_ID_EMAIL;
+    password = password || file.APPLE_APP_PASSWORD;
+  }
+  return email && password ? { email: email.trim(), password: password.trim() } : null;
+}
+
+// Answers with what it has and syncs behind it, so a slow iCloud never holds the session
+// start: the pill shows the agenda as soon as the first sync lands.
+async function readCaldav($, home, nowMs, calendars) {
+  const creds = await caldavCredentials($, home);
+  if (!creds) {
+    caldav.status = `sem credenciais: ${CALDAV_FILE} com APPLE_ID_EMAIL e APPLE_APP_PASSWORD`;
+    return null;
+  }
+  if (!caldav.pending && nowMs - caldav.at >= CALDAV_TTL_MS) {
+    caldav.pending = true;
+    caldav.at = nowMs;
+    syncCaldav($, creds, nowMs, calendars)
+      .then((rows) => {
+        s.agenda = rows;
+        caldav.status = `iCloud direto, ${rows.length} compromissos`;
+        $.ui.invalidate("ui.render");
+      })
+      .catch((err) => {
+        caldav.at = nowMs - CALDAV_TTL_MS + CALDAV_RETRY_MS;
+        caldav.status = `iCloud: ${err?.message || "falhou"}`;
+      })
+      .finally(() => {
+        caldav.pending = false;
+      });
+  }
+  return s.agenda;
+}
+
+async function syncCaldav($, creds, nowMs, wanted) {
+  const auth = authHeader(creds.email, creds.password);
+  const send = async (method, url, body, depth) => {
+    if (!trusted(url)) throw new Error("destino fora do iCloud");
+    const r = await $.http.fetch(url, { method, headers: { Authorization: auth, Depth: depth, "Content-Type": "application/xml; charset=utf-8" }, body });
+    if (r.status !== 207 && !r.ok) throw Object.assign(new Error(failureOf(r.status)), { status: r.status });
+    return r;
+  };
+  if (!caldav.calendars) {
+    const principal = hrefOf((await send("PROPFIND", CALDAV_BASE, BODY_PRINCIPAL, "0")).text, "current-user-principal");
+    if (!principal) throw new Error("iCloud sem principal");
+    const home = hrefOf((await send("PROPFIND", new URL(principal, CALDAV_BASE).toString(), BODY_HOME, "0")).text, "calendar-home-set");
+    if (!home) throw new Error("iCloud sem calendar-home-set");
+    caldav.home = new URL(home, CALDAV_BASE).toString();
+    caldav.calendars = parseCalendars((await send("PROPFIND", caldav.home, BODY_CALENDARS, "1")).text, caldav.home);
+  }
+  const [from, to] = agendaWindow(nowMs);
+  const rows = [];
+  for (const cal of pickCalendars(caldav.calendars, wanted, norm)) {
+    const r = await send("REPORT", cal.url, eventsBody(from, to), "1").catch((err) => (NO_EXPAND.includes(err.status) ? send("REPORT", cal.url, eventsBody(from, to, false), "1") : Promise.reject(err)));
+    for (const ics of calendarData(r.text)) rows.push(...parseIcs(ics, cal));
+  }
+  return dedupeSort(rows);
 }
 
 async function readGit($) {
