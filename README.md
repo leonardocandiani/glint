@@ -166,7 +166,7 @@ While Claude works, the pill speaks in light alone, and nothing animates at rest
 | Pressure | The rim tints amber past 80% of a usage window and breathes red past 90% of the context or a window. |
 | Reduce motion on | No sweep, no breathing, no spring: the facts and the colours stay. |
 
-With three rows of band the pill is a capsule: half blocks give it a lit top edge and a shaded bottom, quadrants round the corners. With one row it falls back to the single-line pill. The mod refreshes the shared caches in `~/.claude/.cache` itself (version, status, network), so the facts stay current with the status line turned off.
+The mod refreshes the shared caches in `~/.claude/.cache` itself (version, status, network), so the facts stay current with the status line turned off.
 
 Install it from this repo, then turn function hooks on and drop the old `statusLine` so only the mod draws:
 

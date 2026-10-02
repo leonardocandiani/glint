@@ -5,7 +5,6 @@ export const STATE = { green: "#30d758", yellow: "#ffd60a", orange: "#ff9f0a", r
 const BODY = [50, 50, 58];
 const RIM = [96, 100, 118];
 const SPECULAR = [214, 222, 245];
-const SHADE = [24, 24, 30];
 const EDGE_PEAK = 0.68;
 export const CAP_L = "";
 export const CAP_R = "";
@@ -47,27 +46,23 @@ export function stateColor(pct) {
   return STATE.green;
 }
 
-// Light across the glass at column k of n, on one of three layers: the top edge catches
-// the light, the middle is the body, the bottom edge falls into shade. The glint is a
-// moving specular highlight, strongest on the top edge.
-export function glassRgb(k, n, look, layer = "mid") {
+// Light across the glass at column k of n: rim light at both ends, dark body in the
+// middle, a cold tint; the glint is a moving specular highlight.
+export function glassRgb(k, n, look) {
   const t = n > 1 ? k / (n - 1) : 0.5;
   const d = 2 * t - 1;
   let rim = RIM;
   if (look.tint) rim = mix(rim, rgb(look.tint), look.tintStrength ?? 0.6);
   if (look.flash) rim = mix(rim, rgb(look.flash.color), look.flash.strength);
   let c = mix(BODY, rim, EDGE_PEAK * d * d);
-  if (layer === "top") c = mix(c, SPECULAR, 0.22);
-  if (layer === "bottom") c = mix(c, SHADE, 0.45);
   if (look.glintAt !== undefined) {
-    const peak = layer === "top" ? 0.6 : layer === "mid" ? 0.26 : 0.1;
-    c = mix(c, SPECULAR, Math.exp(-(((k - look.glintAt) / 5) ** 2)) * peak);
+    c = mix(c, SPECULAR, Math.exp(-(((k - look.glintAt) / 4) ** 2)) * 0.32);
   }
   return [c[0] - 5, c[1], c[2] + 9];
 }
 
-export function glassAt(k, n, look, layer) {
-  return hex(glassRgb(k, n, look, layer));
+export function glassAt(k, n, look) {
+  return hex(glassRgb(k, n, look));
 }
 
 // Segments are joined, padded, then clipped or padded to the animated width (in cells),
@@ -102,7 +97,7 @@ export function pillCells(segments, width, look) {
   const n = cells.reduce((m, c) => m + c.w, 0);
   let k = 0;
   return cells.map((c) => {
-    const out = { ...c, bg: glassAt(k, n, look, "mid") };
+    const out = { ...c, bg: glassAt(k, n, look) };
     k += c.w;
     return out;
   });
@@ -121,23 +116,6 @@ export function spans(cells) {
     else out.push({ text: c.ch, fg: c.fg, bg: c.bg, bold: c.bold, href: c.href });
   }
   return out;
-}
-
-// The top and bottom edges of the capsule: half blocks give the glass a lit top and a
-// shaded bottom at half-cell height, quadrants round the corners. Drawn as text, not as a
-// Raster, because a Raster quantises colour to 4 bits a channel and the glass would band.
-export function edgeCells(n, look, layer) {
-  const [body, left, right] = layer === "top" ? ["▄", "▗", "▖"] : ["▀", "▝", "▘"];
-  const out = [];
-  for (let k = 0; k < n + 2; k++) {
-    const ch = k === 0 ? left : k === n + 1 ? right : body;
-    out.push({ ch, w: 1, fg: glassAt(Math.min(n - 1, Math.max(0, k - 1)), n, look, layer), bold: false });
-  }
-  return out;
-}
-
-export function sideCaps(n, look) {
-  return { left: { ch: "▐", fg: glassAt(0, n, look, "mid") }, right: { ch: "▌", fg: glassAt(n - 1, n, look, "mid") } };
 }
 
 export function springStep(current, target) {

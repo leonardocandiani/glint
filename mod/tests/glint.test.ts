@@ -28,7 +28,7 @@ const textOf = (node: any) =>
     .map((n) => (n.children ?? []).filter((c: any) => typeof c === "string").join(""))
     .join("");
 const bgs = (node: any) => walk(node).filter((n) => n.type === "Text").map((n) => n.props?.backgroundColor).filter(Boolean);
-const edges = (node: any) => walk(node).filter((n) => n.type === "Box" && /^(top|bot)\d/.test(String(n.props?.key ?? "")));
+const pillsOf = (node: any) => walk(node).filter((n) => n.type === "Box" && /^pill\d/.test(String(n.props?.key ?? "")));
 const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
 type World = { branch?: string; tokens?: number; util5?: number; util7?: number; cjk?: boolean; worktree?: boolean };
@@ -113,18 +113,18 @@ describe("glint mod", () => {
     await $.session.start(START);
     await settle(w);
     const tree = await $.ui.render(ABOVE(100));
-    expect(edges(tree)).toHaveLength(4);
+    expect(pillsOf(tree)).toHaveLength(2);
     const t = textOf(tree);
     for (const fact of ["central", "main", "50%", "7d 83%", "2.1.284", "21:30"]) expect(t).toContain(fact);
   });
 
-  test("a single row band falls back to the one-line pill", async ($, on) => {
+  test("one pill, rounded like the status line, when it fits", async ($, on) => {
     const w = world(on);
     await $.session.start(START);
     await settle(w);
-    const tree = await $.ui.render(ABOVE(220, 1));
-    expect(edges(tree)).toHaveLength(0);
-    expect(textOf(tree).startsWith("")).toBe(true);
+    const tree = await $.ui.render(ABOVE(220));
+    expect(pillsOf(tree)).toHaveLength(1);
+    expect(textOf(tree).startsWith("\ue0b6")).toBe(true);
   });
 
   test("the glint sweeps the glass while Claude works", async ($, on) => {
@@ -185,7 +185,7 @@ describe("glint mod", () => {
     await $.session.start(START);
     await settle(w);
     const tree = await $.ui.render(ABOVE(120));
-    const mids = walk(tree).filter((n) => n.type === "Box" && String(n.props?.key ?? "").startsWith("mid"));
+    const mids = walk(tree).filter((n) => n.type === "Box" && String(n.props?.key ?? "").startsWith("pill"));
     for (const m of mids) {
       const line = textOf(m);
       const cells = [...line].reduce((n, ch) => n + (/[　-鿿＀-￯]/.test(ch) ? 2 : 1), 0);

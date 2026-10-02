@@ -5,7 +5,7 @@
 // tool or a finished turn and breathes under pressure. It never repeats what Claude Code
 // already prints, and it wraps into a second pill instead of dropping a fact.
 
-import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, edgeCells, pillCells, short, sideCaps, spans, springStep, stateColor, textWidth } from "./pill.mjs";
+import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, pillCells, short, spans, springStep, stateColor, textWidth } from "./pill.mjs";
 import { githubUrl, parseBranch, reserve, untilText } from "./sources.mjs";
 
 const TTL = { version: 1800, status: 300, net: 60 };
@@ -336,37 +336,24 @@ export function register(on) {
 
 function draw($, e, now) {
   const { Box, Text, Link } = $.ui.resolve(e);
-  const edge = (key, cells) => Box({ key, flexDirection: "row", children: spans(cells).map((p, k) => Text({ key: `e${k}`, color: p.fg, children: p.text })) });
   const columns = e.props.bodyColumns ?? 120;
-  const maxRows = e.props.maxRows ?? 3;
-  const capsule = maxRows >= 3;
-  const maxPills = Math.max(1, Math.min(2, capsule ? Math.floor(maxRows / 3) : maxRows));
+  const maxPills = Math.max(1, Math.min(2, e.props.maxRows ?? 2));
   const inner = columns - 10;
   s.ctxShown = s.modes.reduceMotion ? s.ctx.pct : easeTo(s.ctxShown, s.ctx.pct);
   const pills = pack(blocks(now, columns), inner, maxPills);
-  const rows = [];
-  pills.forEach((pb, i) => {
+  const rows = pills.map((pb, i) => {
     const segs = segmentsOf(pb);
     s.targets[i] = Math.min(columns - 6, textWidth(segs) + 4);
     const intro = now < s.introUntil ? Math.max(0.15, 1 - (s.introUntil - now) / INTRO_MS) : 1;
     const goal = s.targets[i] * intro;
     s.widths[i] = s.modes.reduceMotion || s.widths[i] === undefined ? goal : springStep(s.widths[i], goal);
     if (now >= s.introUntil && Math.abs(s.widths[i] - s.targets[i]) < 0.5) s.widths[i] = s.targets[i];
-    const lk = look(now, i, s.widths[i]);
-    const cells = pillCells(segs, s.widths[i], lk);
-    const n = cellsWidth(cells);
+    const cells = pillCells(segs, s.widths[i], look(now, i, s.widths[i]));
     const middle = spans(cells).map((p, k) => {
       const t = Text({ key: `t${k}`, color: p.fg, backgroundColor: p.bg, bold: p.bold, children: p.text });
       return p.href ? Link({ key: `l${k}`, href: p.href, children: [t] }) : t;
     });
-    if (capsule) {
-      const caps = sideCaps(n, lk);
-      rows.push(edge(`top${i}`, edgeCells(n, lk, "top")));
-      rows.push(Box({ key: `mid${i}`, flexDirection: "row", children: [Text({ key: "cl", color: caps.left.fg, children: caps.left.ch }), ...middle, Text({ key: "cr", color: caps.right.fg, children: caps.right.ch })] }));
-      rows.push(edge(`bot${i}`, edgeCells(n, lk, "bottom")));
-    } else {
-      rows.push(Box({ key: `mid${i}`, flexDirection: "row", children: [Text({ key: "cl", color: cells[0]?.bg, children: CAP_L }), ...middle, Text({ key: "cr", color: cells[cells.length - 1]?.bg, children: CAP_R })] }));
-    }
+    return Box({ key: `pill${i}`, flexDirection: "row", children: [Text({ key: "cl", color: cells[0]?.bg, children: CAP_L }), ...middle, Text({ key: "cr", color: cells[cells.length - 1]?.bg, children: CAP_R })] });
   });
   s.widths.length = pills.length;
   s.targets.length = pills.length;
