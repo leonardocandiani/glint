@@ -36,7 +36,7 @@ async function settled($: any, above: any) {
 }
 const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
-type World = { branch?: string; tokens?: number; util5?: number; util7?: number; cjk?: boolean; worktree?: boolean; agenda?: any[] };
+type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[] };
 
 function world(on: any, o: World = {}) {
   const clock = mock.clock(on, { now: T0 });
@@ -46,7 +46,7 @@ function world(on: any, o: World = {}) {
     [`${HOME}/.config/claude-account/profiles/proteauto.json`]: JSON.stringify({ type: "native_archive", name: "proteauto" }),
     [`${HOME}/.config/claude-account/measure.json`]: JSON.stringify({
       measured_at: new Date(T0 - 60_000).toISOString(),
-      profiles: { proteauto: { util_5h: o.util5 ?? 41, reset_5h: NOW_S + 3600, util_7d: o.util7 ?? 83, reset_7d: NOW_S + 2 * 86400 } },
+      profiles: { proteauto: { util_5h: o.util5 === undefined ? 41 : o.util5, reset_5h: NOW_S + 3600, util_7d: o.util7 === undefined ? 83 : o.util7, reset_7d: NOW_S + 2 * 86400 } },
       history: { proteauto: [] },
     }),
     [`${HOME}/.claude/.cache/claude-latest-version`]: `2.1.290 ${NOW_S}`,
@@ -58,7 +58,7 @@ function world(on: any, o: World = {}) {
   on("session.model", () => ({ value: "claude-opus-5-5" }));
   on("session.version", () => ({ value: { version: "2.1.284" } }));
   on("session.cwd", () => ({ value: "/Users/x/projetos/central" }));
-  on("session.usage", () => ({ value: { context: { tokens: o.tokens ?? 300_000, window: 1_000_000 }, rateLimits: [] } }));
+  on("session.usage", () => ({ value: { context: { tokens: o.tokens ?? 300_000, window: 1_000_000 }, rateLimits: o.rateLimits ?? [] } }));
   on("env.get", ($: any, e: any) => ({ value: { HOME, CLAUDE_CODE_AUTO_COMPACT_WINDOW: "600000", CLAUDE_EFFORT: "xhigh" }[e.name as string] }));
   on("config.list", () => ({ value: [{ key: "thinking", value: true }, { key: "fast", value: false }, { key: "reduceMotion", value: false }] }));
   on("settings.read", () => ({ value: { effortLevel: "xhigh" } }));
@@ -114,6 +114,24 @@ describe("glint mod", () => {
     await settle(w);
     const t = textOf(await $.ui.render(ABOVE()));
     for (const fact of ["Opus 5.5", "\u{f04c5}", "\uf0eb", "\uf07b central", "\ue725 main •2", "50%", "300K/600K", "①", "5h 41%", "7d 83% ↻1d 23h", "2.1.284", "●", "01/10 21:30"]) expect(t).toContain(fact);
+  });
+
+  test("a measure that failed (null usage) falls back to the session's limits instead of showing 0%", async ($, on) => {
+    const iso = (s: number) => new Date(s * 1000).toISOString();
+    const w = world(on, {
+      util5: null,
+      util7: null,
+      rateLimits: [
+        { kind: "five_hour", percentUsed: 12, resetsAt: iso(NOW_S + 3600) },
+        { kind: "seven_day", percentUsed: 79, resetsAt: iso(NOW_S + 2 * 86400) },
+      ],
+    });
+    await $.session.start(START);
+    await settle(w);
+    const t = textOf(await $.ui.render(ABOVE()));
+    expect(t).toContain("5h 12%");
+    expect(t).toContain("7d 79%");
+    expect(t).not.toContain("5h 0%");
   });
 
   test("never repeats what Claude Code already prints while it works", async ($, on) => {

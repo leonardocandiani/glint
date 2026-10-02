@@ -78,7 +78,8 @@ const limitInk = (p) => (p >= 90 ? STATE.red : p >= 80 ? STATE.orange : p >= 55 
 function windows(nowS) {
   const m = s.measure?.fresh ? s.measure : null;
   const pick = (key, label, winS, mix) => {
-    const src = (m && m[key]) || s.limits[key];
+    // A measure that failed (401, account never measured) has no number: fall back to the session's own limits.
+    const src = Number.isFinite(m?.[key]?.pct) ? m[key] : s.limits[key];
     if (!src || !Number.isFinite(src.pct)) return null;
     return { label, pct: Math.round(src.pct), resetsAt: src.resetsAt, reserve: reserve(src.pct, src.resetsAt, winS, nowS, mix ? s.measure?.history : null) };
   };
@@ -723,6 +724,9 @@ async function readAccount($, home) {
   return { name, preferred: String(policy?.preferred ?? "") };
 }
 
+// Number(null) is 0, which would paint a failed measure as 0% used.
+const measuredPct = (v) => (v == null ? NaN : Number(v));
+
 async function readMeasure($, home, account, nowS) {
   const m = await readJson($, `${home}/.config/claude-account/measure.json`);
   if (!m || !account) return null;
@@ -730,8 +734,8 @@ async function readMeasure($, home, account, nowS) {
   const p = m.profiles?.[account];
   return {
     fresh: Boolean(p && nowS - at < MEASURE_FRESH_S),
-    w5: p ? { pct: Number(p.util_5h), resetsAt: Number(p.reset_5h) } : null,
-    w7: p ? { pct: Number(p.util_7d), resetsAt: Number(p.reset_7d) } : null,
+    w5: p ? { pct: measuredPct(p.util_5h), resetsAt: Number(p.reset_5h) } : null,
+    w7: p ? { pct: measuredPct(p.util_7d), resetsAt: Number(p.reset_7d) } : null,
     history: m.history?.[account] ?? [],
   };
 }
