@@ -6,7 +6,7 @@ Estado em 02/10/2026, 09:47. Branch `feat/mod`, worktree `~/tools/_wt-glint-mod`
 
 - Cartões no hover: cada bloco com `card` vira uma área `hover` com `scope` `glint-<id>`, e o cartão fica escondido acima das pílulas, dentro da faixa. Provado no Claude Code real (tmux, 150 colunas, mouse simulado por SGR): abre com o mouse no bloco e some quando o mouse sai.
 - Limite medido: `position: "absolute"` acima da faixa NÃO aparece, a engine recorta pela região da faixa. O cartão tem que estar dentro das linhas da faixa (ela cresce para cima).
-- Agenda da Apple lida do banco da Central (`sqlite3 -readonly`), sem "Pessoal Helo". Compromisso de agora com barra até o fim, próximo de hoje, ou o primeiro de amanhã quando o dia está livre. Cartão com o dia e amanhã.
+- Agenda da Apple lida do banco da Central (`sqlite3 -readonly`) ou, sem a Central, direto do iCloud por CalDAV (`~/.config/glint/caldav.env`), sem "Pessoal Helo". Compromisso de agora com barra até o fim, próximo de hoje, ou o primeiro de amanhã quando o dia está livre. Cartão com o dia e amanhã.
 - Toast 10 minutos antes de cada compromisso, uma vez.
 - Cartão da cota: 5h e 7d com barra, quando volta e reserva.
 - Agenda dentro do bloco do relógio (02/10, 10:3x): a pílula só nomeia o compromisso em andamento ou que começa em até 1 hora; fora disso mostra só data e hora. O cartão do relógio tem o calendário do mês (hoje no acento, dia com compromisso na cor dele) ao lado da lista do dia e de amanhã; em faixa baixa cai para só a lista.

@@ -168,6 +168,20 @@ While Claude works, the pill speaks in light alone, and nothing animates at rest
 
 The mod refreshes the shared caches in `~/.claude/.cache` itself (version, status, network), so the facts stay current with the status line turned off.
 
+### The Apple calendar
+
+The clock block also carries your Apple calendar: what is on now with a bar to its end, the next event today, and a card on hover with the month, today and tomorrow. A toast fires ten minutes before each event. glint reads it from one of two places:
+
+- **The Central's database** (`~/central/data/central.db`, read only), on a machine where the Central runs.
+- **iCloud directly over CalDAV**, everywhere else. Create an app-specific password at appleid.apple.com (Sign-In and Security) and put the pair in `~/.config/glint/caldav.env`, mode `0600`:
+
+```sh
+APPLE_ID_EMAIL=you@icloud.com
+APPLE_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+```
+
+The same two names also work as environment variables, which win over the file. The password only travels to `*.icloud.com` over https. The first sync runs behind the session start and repeats every five minutes, so a slow iCloud never holds anything up. Only the calendars listed in `CALENDARS_DEFAULT` (`mod/hooks/agenda.mjs`) are fetched. `/glint agenda` says where the agenda comes from and why it is empty when it is.
+
 Install it from this repo, then turn function hooks on and drop the old `statusLine` so only the mod draws:
 
 ```sh

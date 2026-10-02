@@ -36,11 +36,11 @@ async function settled($: any, above: any) {
 }
 const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
-type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[] };
+type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] } };
 
 function world(on: any, o: World = {}) {
   const clock = mock.clock(on, { now: T0 });
-  const w = { clock, tool: (() => ({ result: "ok" })) as any, invalidations: 0, fetches: 0 };
+  const w = { clock, tool: (() => ({ result: "ok" })) as any, invalidations: 0, fetches: 0, calls: [] as { method: string; url: string; headers: Record<string, string> }[] };
   const files: Record<string, string> = {
     [`${HOME}/.config/claude-account/policy.json`]: JSON.stringify({ preferred: "proteauto" }),
     [`${HOME}/.config/claude-account/profiles/proteauto.json`]: JSON.stringify({ type: "native_archive", name: "proteauto" }),
@@ -53,13 +53,17 @@ function world(on: any, o: World = {}) {
     [`${HOME}/.claude/.cache/claude-status`]: `none||${NOW_S}`,
     [`${HOME}/.claude/.cache/net-latency`]: `180|${NOW_S}`,
   };
+  const ic = o.icloud;
+  if (ic?.creds === "file") files[`${HOME}/.config/glint/caldav.env`] = '# iCloud\nAPPLE_ID_EMAIL=leo@icloud.com\nAPPLE_APP_PASSWORD="example-app-password"\n';
   const branch = o.branch ?? "main";
   on("session.start", ($: any, e: any) => ({ cwd: e.cwd }));
   on("session.model", () => ({ value: "claude-opus-5-5" }));
   on("session.version", () => ({ value: { version: "2.1.284" } }));
   on("session.cwd", () => ({ value: "/Users/x/projetos/central" }));
   on("session.usage", () => ({ value: { context: { tokens: o.tokens ?? 300_000, window: 1_000_000 }, rateLimits: o.rateLimits ?? [] } }));
-  on("env.get", ($: any, e: any) => ({ value: { HOME, CLAUDE_CODE_AUTO_COMPACT_WINDOW: "600000", CLAUDE_EFFORT: "xhigh" }[e.name as string] }));
+  const envVars: Record<string, string> = { HOME, CLAUDE_CODE_AUTO_COMPACT_WINDOW: "600000", CLAUDE_EFFORT: "xhigh" };
+  if (ic?.creds === "env") Object.assign(envVars, { APPLE_ID_EMAIL: "leo@icloud.com", APPLE_APP_PASSWORD: "example-app-password" });
+  on("env.get", ($: any, e: any) => ({ value: envVars[e.name as string] }));
   on("config.list", () => ({ value: [{ key: "thinking", value: true }, { key: "fast", value: false }, { key: "reduceMotion", value: false }] }));
   on("settings.read", () => ({ value: { effortLevel: "xhigh" } }));
   on("fs.exists", ($: any, e: any) => ({ value: e.path.endsWith("/profiles") || e.path in files || (Boolean(o.agenda) && e.path.endsWith("central/data/central.db")) }));
@@ -78,9 +82,18 @@ function world(on: any, o: World = {}) {
     store[e.key] = e.value;
     return { value: undefined };
   });
-  on("http.fetch", () => {
+  on("http.fetch", ($: any, e: any) => {
     w.fetches += 1;
-    return { value: { status: 500, ok: false, headers: {}, text: "" } };
+    if (!ic) return { value: { status: 500, ok: false, headers: {}, text: "" } };
+    const method = e.init?.method ?? "GET";
+    w.calls.push({ method, url: e.url, headers: e.init?.headers ?? {} });
+    const multi = (status: number, text: string) => ({ value: { status, ok: status >= 200 && status < 300, headers: {}, text } });
+    if (ic.login) return multi(ic.login, "");
+    if (e.url === "https://caldav.icloud.com/") return multi(207, ICLOUD_PRINCIPAL);
+    if (e.url === "https://caldav.icloud.com/1234567890/principal/") return multi(207, ICLOUD_HOME);
+    if (e.url === "https://p42-caldav.icloud.com/1234567890/calendars/") return multi(207, ICLOUD_CALENDARS);
+    if (method === "REPORT" && e.url.endsWith("0001/")) return multi(207, icloudReport(ic.events ?? []));
+    return multi(404, "");
   });
   on("process.run", ($: any, e: any) => {
     if (e.argv[0] === "sqlite3") return { value: { exitCode: 0, stdout: JSON.stringify(o.agenda ?? []), stderr: "" } };
@@ -102,6 +115,26 @@ function world(on: any, o: World = {}) {
   on("turn.complete", () => ({ text: "" }));
   on("tool.call", (...a: any[]) => w.tool(...a));
   return w;
+}
+
+const dav = (inner: string) => `<?xml version='1.0' encoding='UTF-8'?><multistatus xmlns='DAV:'>${inner}</multistatus>`;
+const ICLOUD_PRINCIPAL = dav("<response><href>/</href><propstat><prop><current-user-principal><href>/1234567890/principal/</href></current-user-principal></prop><status>HTTP/1.1 200 OK</status></propstat></response>");
+const ICLOUD_HOME = dav("<response><href>/1234567890/principal/</href><propstat><prop><calendar-home-set xmlns='urn:ietf:params:xml:ns:caldav'><href xmlns='DAV:'>https://p42-caldav.icloud.com:443/1234567890/calendars/</href></calendar-home-set></prop><status>HTTP/1.1 200 OK</status></propstat></response>");
+const calendarEntry = (id: string, name: string, color: string, comp = "VEVENT") =>
+  `<response><href>/1234567890/calendars/${id}/</href><propstat><prop><displayname>${name}</displayname><resourcetype><collection/><calendar xmlns='urn:ietf:params:xml:ns:caldav'/></resourcetype><calendar-color xmlns='http://apple.com/ns/ical/'>${color}</calendar-color><supported-calendar-component-set xmlns='urn:ietf:params:xml:ns:caldav'><comp name='${comp}'/></supported-calendar-component-set></prop><status>HTTP/1.1 200 OK</status></propstat></response>`;
+const ICLOUD_CALENDARS = dav(
+  "<response><href>/1234567890/calendars/</href><propstat><prop><displayname/><resourcetype><collection/></resourcetype></prop><status>HTTP/1.1 200 OK</status></propstat></response>" +
+    calendarEntry("0001", "Agenda Léo", "#FF2968FF") + calendarEntry("0002", "Pagamentos", "#1BADF8FF") + calendarEntry("0003", "Lembretes", "#000000FF", "VTODO"),
+);
+const icloudReport = (events: string[]) =>
+  dav(events.map((ev, i) => `<response><href>/1234567890/calendars/0001/${i}.ics</href><propstat><prop><getetag>"${i}"</getetag><calendar-data xmlns='urn:ietf:params:xml:ns:caldav'>BEGIN:VCALENDAR\nVERSION:2.0\n${ev}\nEND:VCALENDAR\n</calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response>`).join(""));
+const utcStamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+const vevent = (lines: string[]) => `BEGIN:VEVENT\n${lines.join("\n")}\nEND:VEVENT`;
+// The wall clock São Paulo shows at an instant, as an iCalendar local time.
+function spWall(ms: number) {
+  const p: Record<string, string> = {};
+  for (const x of new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(ms))) p[x.type] = x.value;
+  return `${p.year}${p.month}${p.day}T${p.hour}${p.minute}${p.second}`;
 }
 
 const START = { surface: "terminal", isInteractive: true, cwd: "/w" } as any;
@@ -405,5 +438,61 @@ describe("glint mod", () => {
     await $.session.start(START);
     await settle(w);
     expect(w.fetches).toBe(0);
+  });
+  describe("the calendar straight from iCloud (no Central on this machine)", () => {
+    const events = () => [
+      vevent([`DTSTART:${utcStamp(T0 - 30 * 60_000)}`, `DTEND:${utcStamp(T0 + 30 * 60_000)}`, "SUMMARY:Aula de inglês", "UID:aula-1", `RECURRENCE-ID:${utcStamp(T0 - 30 * 60_000)}`]),
+      vevent([`DTSTART;TZID=America/Sao_Paulo:${spWall(T0 + 90 * 60_000)}`, `DTEND;TZID=America/Sao_Paulo:${spWall(T0 + 120 * 60_000)}`, "SUMMARY:Call de produto\\, semana", "LOCATION:https://meet.google.com/abc-defg-hij", "UID:call-1"]),
+      vevent([`DTSTART:${utcStamp(T0 + 10 * 60_000)}`, `DTEND:${utcStamp(T0 + 40 * 60_000)}`, "SUMMARY:Cancelado", "STATUS:CANCELLED", "UID:x"]),
+      vevent(["DTSTART;VALUE=DATE:20261001", "DTEND;VALUE=DATE:20261002", "SUMMARY:Vence a fatura", "UID:fatura"]),
+    ];
+
+    test("with the Apple ID and app password in the environment, it syncs, shows what is on and never sends the password anywhere but iCloud", async ($, on) => {
+      const w = world(on, { icloud: { creds: "env", events: events() } });
+      await $.session.start(START);
+      await settle(w);
+      const tree = await settled($, ABOVE(230, 12));
+      expect(pillsText(tree)).toMatch(/Aula de inglês .*30min/u);
+      const card = textOf(walk(tree).find((n) => n.props?.key === "card-clock"));
+      for (const fact of ["Call de produto, semana", "23:00", "● Aula de inglês", "agora, até 22:00", "Vence a fatura"]) expect(card).toContain(fact);
+      expect(card).not.toContain("Cancelado");
+      expect(w.calls.every((c) => new URL(c.url).hostname.endsWith("icloud.com") && c.headers.Authorization === "Basic bGVvQGljbG91ZC5jb206ZXhhbXBsZS1hcHAtcGFzc3dvcmQ=")).toBe(true);
+      expect(w.calls.filter((c) => c.method === "REPORT").map((c) => c.url)).toEqual(["https://p42-caldav.icloud.com/1234567890/calendars/0001/"]);
+      const result = await $.command.run({ command: "glint", args: "agenda", origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any);
+      expect(JSON.stringify(result)).toContain("iCloud direto, 3 compromissos");
+    });
+
+    test("the password is read from ~/.config/glint/caldav.env when the environment has none, and a fresh sync waits five minutes", async ($, on) => {
+      const w = world(on, { icloud: { creds: "file", events: events() } });
+      await $.session.start(START);
+      await settle(w);
+      expect(pillsText(await settled($, ABOVE(230, 12)))).toContain("Aula de inglês");
+      const icloud = () => w.calls.filter((c) => c.url.includes("icloud.com"));
+      const first = icloud().length;
+      await w.clock.advance(120_000);
+      expect(icloud().length).toBe(first);
+      await w.clock.advance(200_000);
+      expect(icloud().length).toBeGreaterThan(first);
+      expect(icloud().filter((c) => c.url === "https://caldav.icloud.com/").length).toBe(1);
+    });
+
+    test("without credentials nothing is requested and the block stays out", async ($, on) => {
+      const w = world(on, { icloud: { creds: "none", events: events() } });
+      await $.session.start(START);
+      await settle(w);
+      expect(w.calls.length).toBe(0);
+      expect(textOf(await settled($, ABOVE(230, 12)))).not.toContain("Aula de inglês");
+      const result = await $.command.run({ command: "glint", args: "agenda", origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any);
+      expect(JSON.stringify(result)).toContain("APPLE_APP_PASSWORD");
+    });
+
+    test("a refused password is reported, not shown as an empty agenda", async ($, on) => {
+      const w = world(on, { icloud: { creds: "env", login: 401 } });
+      await $.session.start(START);
+      await settle(w);
+      const result = await $.command.run({ command: "glint", args: "agenda", origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any);
+      expect(JSON.stringify(result)).toContain("credencial");
+      expect(textOf(await settled($, ABOVE(230, 12)))).not.toContain("nada na sua agenda");
+    });
   });
 });
