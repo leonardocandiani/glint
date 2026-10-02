@@ -54,7 +54,7 @@ function world(on: any, o: World = {}) {
     [`${HOME}/.claude/.cache/net-latency`]: `180|${NOW_S}`,
   };
   const ic = o.icloud;
-  if (ic?.creds === "file") files[`${HOME}/.config/glint/caldav.env`] = '# iCloud\nAPPLE_ID_EMAIL=leo@icloud.com\nAPPLE_APP_PASSWORD="abcd-efgh-ijkl-mnop"\n';
+  if (ic?.creds === "file") files[`${HOME}/.config/glint/caldav.env`] = '# iCloud\nAPPLE_ID_EMAIL=leo@icloud.com\nAPPLE_APP_PASSWORD="example-app-password"\n';
   const branch = o.branch ?? "main";
   on("session.start", ($: any, e: any) => ({ cwd: e.cwd }));
   on("session.model", () => ({ value: "claude-opus-5-5" }));
@@ -62,7 +62,7 @@ function world(on: any, o: World = {}) {
   on("session.cwd", () => ({ value: "/Users/x/projetos/central" }));
   on("session.usage", () => ({ value: { context: { tokens: o.tokens ?? 300_000, window: 1_000_000 }, rateLimits: o.rateLimits ?? [] } }));
   const envVars: Record<string, string> = { HOME, CLAUDE_CODE_AUTO_COMPACT_WINDOW: "600000", CLAUDE_EFFORT: "xhigh" };
-  if (ic?.creds === "env") Object.assign(envVars, { APPLE_ID_EMAIL: "leo@icloud.com", APPLE_APP_PASSWORD: "abcd-efgh-ijkl-mnop" });
+  if (ic?.creds === "env") Object.assign(envVars, { APPLE_ID_EMAIL: "leo@icloud.com", APPLE_APP_PASSWORD: "example-app-password" });
   on("env.get", ($: any, e: any) => ({ value: envVars[e.name as string] }));
   on("config.list", () => ({ value: [{ key: "thinking", value: true }, { key: "fast", value: false }, { key: "reduceMotion", value: false }] }));
   on("settings.read", () => ({ value: { effortLevel: "xhigh" } }));
@@ -212,21 +212,21 @@ describe("glint mod", () => {
     await $.session.start(START);
     await settle(w);
     await $.turn.start({ text: "x", turnId: "t" } as any);
-    const a = bgs(await $.ui.render(ABOVE())).join();
+    const a = bgs(pillsOf(await $.ui.render(ABOVE()))).join();
     await w.clock.advance(400);
-    expect(bgs(await $.ui.render(ABOVE())).join()).not.toBe(a);
+    expect(bgs(pillsOf(await $.ui.render(ABOVE()))).join()).not.toBe(a);
   });
 
   test("a failed tool flashes the rim, then it settles", async ($, on) => {
     const w = world(on);
     await $.session.start(START);
     await settle(w);
-    const rest = bgs(await $.ui.render(ABOVE()))[0];
+    const rest = bgs(pillsOf(await $.ui.render(ABOVE())))[0];
     w.tool = () => ({ isError: true, result: "exit 1" });
     await $.tool.call({ tool: "Bash", command: "false" } as any);
-    expect(bgs(await $.ui.render(ABOVE()))[0]).not.toBe(rest);
+    expect(bgs(pillsOf(await $.ui.render(ABOVE())))[0]).not.toBe(rest);
     await w.clock.advance(1000);
-    expect(bgs(await $.ui.render(ABOVE()))[0]).toBe(rest);
+    expect(bgs(pillsOf(await $.ui.render(ABOVE())))[0]).toBe(rest);
   });
 
   test("pressure over 90% keeps frames coming without any other trigger", async ($, on) => {
@@ -366,12 +366,12 @@ describe("glint mod", () => {
     for (const row of walk(narrow).filter((n) => /^r\d/.test(String(n.props?.key ?? "")))) expect([...textOf(row)].length).toBeLessThanOrEqual(60 - 6);
   });
 
-  test("without the Central there is no calendar block and no card for it", async ($, on) => {
+  test("without the Central the clock still opens a card with the month", async ($, on) => {
     const w = world(on);
     await $.session.start(START);
     await settle(w);
-    const tree = await $.ui.render(ABOVE());
-    expect(walk(tree).some((n) => n.props?.key === "card-clock")).toBe(false);
+    const card = walk(await settled($, ABOVE(230, 14))).find((n) => n.props?.key === "card-clock");
+    expect(textOf(card)).toContain("Outubro 2026");
   });
 
   test("version, status and repository open their own cards", async ($, on) => {
@@ -456,7 +456,7 @@ describe("glint mod", () => {
       const card = textOf(walk(tree).find((n) => n.props?.key === "card-clock"));
       for (const fact of ["Call de produto, semana", "23:00", "● Aula de inglês", "agora, até 22:00", "Vence a fatura"]) expect(card).toContain(fact);
       expect(card).not.toContain("Cancelado");
-      expect(w.calls.every((c) => new URL(c.url).hostname.endsWith("icloud.com") && c.headers.Authorization === "Basic bGVvQGljbG91ZC5jb206YWJjZC1lZmdoLWlqa2wtbW5vcA==")).toBe(true);
+      expect(w.calls.every((c) => new URL(c.url).hostname.endsWith("icloud.com") && c.headers.Authorization === "Basic bGVvQGljbG91ZC5jb206ZXhhbXBsZS1hcHAtcGFzc3dvcmQ=")).toBe(true);
       expect(w.calls.filter((c) => c.method === "REPORT").map((c) => c.url)).toEqual(["https://p42-caldav.icloud.com/1234567890/calendars/0001/"]);
       const result = await $.command.run({ command: "glint", args: "agenda", origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any);
       expect(JSON.stringify(result)).toContain("iCloud direto, 3 compromissos");

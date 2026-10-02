@@ -149,7 +149,7 @@ export function blocks(now, columns) {
   const d = new Date(now);
   const stamp = { text: `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`, fg: INK.second };
   const v = s.agenda ? agendaView(s.agenda, now) : null;
-  out.push({ id: "clock", prio: v ? 6 : 1, parts: [...(v ? agendaParts(v, now) : []), stamp], card: v ? agendaCard(v, now) : null });
+  out.push({ id: "clock", prio: v ? 6 : 1, parts: [...(v ? agendaParts(v, now) : []), stamp], card: v ? agendaCard(v, now) : monthCard(now) });
   return out;
 }
 
@@ -216,6 +216,11 @@ function agendaCard(v, now) {
   const list = dayList(v, now);
   const month = monthGrid(now, s.agenda ?? [], { today: INK.accent, busy: INK.primary, past: INK.tert, free: INK.second, head: INK.second });
   return { lines: sideBySide(month, list, 24), compact: list };
+}
+
+// Without a calendar to read, the clock's card is the month alone.
+function monthCard(now) {
+  return monthGrid(now, [], { today: INK.accent, busy: INK.primary, past: INK.tert, free: INK.second, head: INK.second });
 }
 
 function sideBySide(left, right, gutter) {

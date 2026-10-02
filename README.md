@@ -177,7 +177,7 @@ The clock block also carries your Apple calendar: what is on now with a bar to i
 
 ```sh
 APPLE_ID_EMAIL=you@icloud.com
-APPLE_APP_PASSWORD=abcd-efgh-ijkl-mnop
+APPLE_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
 The same two names also work as environment variables, which win over the file. The password only travels to `*.icloud.com` over https. The first sync runs behind the session start and repeats every five minutes, so a slow iCloud never holds anything up. Only the calendars listed in `CALENDARS_DEFAULT` (`mod/hooks/agenda.mjs`) are fetched. `/glint agenda` says where the agenda comes from and why it is empty when it is.
