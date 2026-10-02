@@ -1,0 +1,11 @@
+{
+  "name": "glint",
+  "owner": { "name": "Leonardo Candiani" },
+  "plugins": [
+    {
+      "name": "glint",
+      "source": "./mod",
+      "description": "The liquid-glass pill above the prompt, as a Claude Code mod: grows into a live activity while Claude works."
+    }
+  ]
+}

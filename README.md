@@ -145,6 +145,39 @@ The installer copies the script into `~/.claude/`, backs up anything it replaces
 
 That's it. By default the context bar measures against the model's reported context size. If you'd rather it track how close you are to an auto-compaction, opt in (see Configuration).
 
+## glint as a mod (early access)
+
+Claude Code mods are function hooks that live inside the session, so the pill no longer has to be a line of text redrawn once a second. As a mod, glint sits in the band above the prompt and moves with what Claude is doing, the way the Dynamic Island does:
+
+<img src="mod/docs/demo.gif" alt="glint mod: the pill grows into a live activity, a light sweeps across the glass, a failed tool flashes red, a finished turn flashes green" width="820" />
+
+<img src="mod/docs/mod-states.png" alt="glint mod states: at rest, working, a failed tool, turn done, context over 90%" width="820" />
+
+Every motion means something, and nothing animates at rest:
+
+| State | What you see |
+|---|---|
+| At rest | Model, effort, project, git, context against the auto-compact window, 5h and 7d usage, clock. No timer runs. |
+| Working | The pill grows into a live activity: the tool running right now, its target and the elapsed time, while a light sweeps across the glass. |
+| A tool fails | The pill says which tool failed and the rim flashes red, even mid-turn. |
+| Turn done | `✓ done 18s` for a moment, with a green flash on the rim, then the pill settles back. |
+| Pressure | The rim takes an amber tint when a usage window passes 80%, and breathes red when the context or a window passes 90%. |
+
+Install it from this repo, then turn function hooks on and drop the old `statusLine` so only the mod draws:
+
+```sh
+claude plugin marketplace add leonardocandiani/glint
+claude plugin install glint@glint
+```
+
+```json
+{
+  "env": { "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1" }
+}
+```
+
+`/glint demo` plays every state in about 12 seconds without a model call, and `/glint off` hides the pill. Function hooks are early access in Claude Code 2.1.280 and later, and the API may change between releases. Inside tmux, Claude Code drops to 256 colours, so the glass shows as bands rather than a gradient.
+
 ## The panel
 
 Everything the bar can show is a part, and the panel is where you decide which
