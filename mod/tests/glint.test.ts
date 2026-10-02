@@ -1,149 +1,203 @@
 import { describe, expect, mock, test } from "claude-code/testing";
 
 const T0 = new Date(2026, 9, 1, 21, 30, 0).getTime();
-const ABOVE = (bodyColumns = 160, isWorking = false) =>
+const NOW_S = Math.floor(T0 / 1000);
+const HOME = "/Users/x";
+const ABOVE = (bodyColumns = 170, maxRows = 10, isWorking = false) =>
   ({
     component: "AbovePrompt",
     surface: "terminal",
     requestId: "above",
     viewport: { columns: bodyColumns + 2, rows: 40 },
-    props: { hasSurvey: false, isWorking, maxRows: 10, bodyColumns, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+    props: { hasSurvey: false, isWorking, maxRows, bodyColumns, scroll: { offset: 0, bodyRows: 10 }, view: {} },
   }) as any;
 
-function flat(node: any, out: any[] = []): any[] {
+function walk(node: any, out: any[] = []): any[] {
   if (node == null || typeof node === "string") return out;
   if (Array.isArray(node)) {
-    node.forEach((n) => flat(n, out));
+    node.forEach((n) => walk(n, out));
     return out;
   }
-  const p = node.props ?? {};
-  for (const c of node.children ?? []) {
-    if (typeof c === "string") out.push({ text: c, color: p.color, bg: p.backgroundColor });
-    else flat(c, out);
-  }
+  out.push(node);
+  for (const c of node.children ?? []) if (typeof c !== "string") walk(c, out);
   return out;
 }
-const text = (node: any) => flat(node).map((x) => x.text).join("");
-const bgs = (node: any) => flat(node).map((x) => x.bg).filter(Boolean);
+const textOf = (node: any) =>
+  walk(node)
+    .filter((n) => n.type === "Text")
+    .map((n) => (n.children ?? []).filter((c: any) => typeof c === "string").join(""))
+    .join("");
+const bgs = (node: any) => walk(node).filter((n) => n.type === "Text").map((n) => n.props?.backgroundColor).filter(Boolean);
+const edges = (node: any) => walk(node).filter((n) => n.type === "Box" && /^(top|bot)\d/.test(String(n.props?.key ?? "")));
+const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
-function world(on: any, o: { tokens?: number; limits?: any[] } = {}) {
+type World = { branch?: string; tokens?: number; util5?: number; util7?: number; cjk?: boolean; worktree?: boolean };
+
+function world(on: any, o: World = {}) {
   const clock = mock.clock(on, { now: T0 });
-  const w = { clock, tool: (($: any, e: any) => ({ result: "ok" })) as any };
+  const w = { clock, tool: (() => ({ result: "ok" })) as any, invalidations: 0, fetches: 0 };
+  const files: Record<string, string> = {
+    [`${HOME}/.config/claude-account/policy.json`]: JSON.stringify({ preferred: "proteauto" }),
+    [`${HOME}/.config/claude-account/profiles/proteauto.json`]: JSON.stringify({ type: "native_archive", name: "proteauto" }),
+    [`${HOME}/.config/claude-account/measure.json`]: JSON.stringify({
+      measured_at: new Date(T0 - 60_000).toISOString(),
+      profiles: { proteauto: { util_5h: o.util5 ?? 41, reset_5h: NOW_S + 3600, util_7d: o.util7 ?? 83, reset_7d: NOW_S + 2 * 86400 } },
+      history: { proteauto: [] },
+    }),
+    [`${HOME}/.claude/.cache/claude-latest-version`]: `2.1.290 ${NOW_S}`,
+    [`${HOME}/.claude/.cache/claude-status`]: `none||${NOW_S}`,
+    [`${HOME}/.claude/.cache/net-latency`]: `180|${NOW_S}`,
+  };
+  const branch = o.branch ?? "main";
   on("session.start", ($: any, e: any) => ({ cwd: e.cwd }));
   on("session.model", () => ({ value: "claude-opus-5-5" }));
-  on("session.repo", () => ({ value: { root: "/Users/x/projetos/central", remote: null } }));
+  on("session.version", () => ({ value: { version: "2.1.284" } }));
   on("session.cwd", () => ({ value: "/Users/x/projetos/central" }));
-  on("env.get", ($: any, e: any) => ({ value: e.name === "CLAUDE_CODE_AUTO_COMPACT_WINDOW" ? "600000" : e.name === "CLAUDE_EFFORT" ? "xhigh" : undefined }));
-  on("session.usage", () => ({
-    value: { context: { tokens: o.tokens ?? 300_000, window: 1_000_000 }, rateLimits: o.limits ?? [{ kind: "five_hour", percentUsed: 11 }, { kind: "seven_day", percentUsed: 41 }] },
-  }));
-  on("process.run", () => ({ value: { exitCode: 0, stdout: "## main...origin/main\n M a.ts\n?? b.ts\n", stderr: "" } }));
+  on("session.usage", () => ({ value: { context: { tokens: o.tokens ?? 300_000, window: 1_000_000 }, rateLimits: [] } }));
+  on("env.get", ($: any, e: any) => ({ value: { HOME, CLAUDE_CODE_AUTO_COMPACT_WINDOW: "600000", CLAUDE_EFFORT: "xhigh" }[e.name as string] }));
+  on("config.list", () => ({ value: [{ key: "thinking", value: true }, { key: "fast", value: false }, { key: "reduceMotion", value: false }] }));
+  on("settings.read", () => ({ value: { effortLevel: "xhigh" } }));
+  on("fs.exists", ($: any, e: any) => ({ value: e.path.endsWith("/profiles") || e.path in files }));
+  on("fs.list", () => ({ value: [{ name: "proteauto.json", kind: "file" }] }));
+  on("fs.read", ($: any, e: any) => (e.path in files ? { value: files[e.path] } : { deny: "missing" }));
+  on("fs.write", () => ({ value: undefined }));
+  on("http.fetch", () => {
+    w.fetches += 1;
+    return { value: { status: 500, ok: false, headers: {}, text: "" } };
+  });
+  on("process.run", ($: any, e: any) => {
+    const a = e.argv.join(" ");
+    const proj = o.cjk ? "プロジェクト" : "central";
+    if (a.startsWith("git rev-parse"))
+      return { value: { exitCode: 0, stdout: o.worktree ? `/Users/x/projetos/_wt-${proj}-x\n/Users/x/projetos/${proj}/.git/worktrees/x\n/Users/x/projetos/${proj}/.git\n` : `/Users/x/projetos/${proj}\n.git\n.git\n`, stderr: "" } };
+    if (a.startsWith("git status")) return { value: { exitCode: 0, stdout: `## ${branch}...origin/${branch}\n M a.ts\n?? b.ts\n`, stderr: "" } };
+    if (a.startsWith("git remote")) return { value: { exitCode: 0, stdout: "git@github.com:leonardocandiani/central.git\n", stderr: "" } };
+    return { value: { exitCode: 1, stdout: "", stderr: "" } };
+  });
   on("command.register", ($: any, e: any) => ({ value: { command: e.name } }));
-  on("tool.call", (...a: any[]) => w.tool(...a));
-  on("ui.invalidate", () => ({ value: undefined }));
+  on("ui.invalidate", () => {
+    w.invalidations += 1;
+    return { value: undefined };
+  });
   on("ui.render", ($: any, e: any) => $.ui.resolve(e).Box({ children: [] }));
   on("turn.start", ($: any, e: any) => ({ turnId: e.turnId }));
   on("turn.complete", () => ({ text: "" }));
+  on("tool.call", (...a: any[]) => w.tool(...a));
   return w;
 }
 
 const START = { surface: "terminal", isInteractive: true, cwd: "/w" } as any;
+const settle = async (w: any) => w.clock.advance(1500);
 
 describe("glint mod", () => {
-  test("at rest: model, effort, project, git, context against the compact window, limits, clock", async ($, on) => {
-    world(on);
+  test("shows the status line facts Claude Code does not", async ($, on) => {
+    const w = world(on);
     await $.session.start(START);
-    const t = text(await $.ui.render(ABOVE()));
-    expect(t).toContain("Opus 5.5 ●");
-    expect(t).toContain("central");
-    expect(t).toContain("main •2");
-    expect(t).toContain("50%  300K/600K");
-    expect(t).toContain("5h 11%");
-    expect(t).toContain("7d 41%");
-    expect(t).toContain("21:30");
-    expect(t.startsWith("")).toBe(true);
+    await settle(w);
+    const t = textOf(await $.ui.render(ABOVE()));
+    for (const fact of ["Opus 5.5", "\u{f04c5}", "", "central", "main •2", "50%", "300K/600K", "①", "5h 41%", "7d 83% ↻1d 23h", "2.1.284", "●", "01/10 21:30"]) expect(t).toContain(fact);
   });
 
-  test("working: live activity with the running tool and elapsed time", async ($, on) => {
+  test("never repeats what Claude Code already prints while it works", async ($, on) => {
     const w = world(on);
     await $.session.start(START);
     await $.turn.start({ text: "x", turnId: "t" } as any);
     await w.clock.advance(14_000);
-    expect(text(await $.ui.render(ABOVE(160, true)))).toContain("thinking   14s");
-    let seen = "";
-    w.tool = async () => {
-      seen = text(await $.ui.render(ABOVE(160, true)));
-      return { result: "ok" };
-    };
-    await $.tool.call({ tool: "Bash", command: "bun test", description: "Run the tests" } as any);
-    expect(seen).toContain("Bash Run the tests");
+    const t = textOf(await $.ui.render(ABOVE(170, 10, true)));
+    expect(t).not.toContain("thinking");
+    expect(t).not.toContain("14s");
   });
 
-  test("the glint moves across the glass from frame to frame", async ($, on) => {
+  test("a narrow terminal wraps into a second pill and keeps every fact", async ($, on) => {
     const w = world(on);
     await $.session.start(START);
-    await $.turn.start({ text: "x", turnId: "t" } as any);
-    const a = bgs(await $.ui.render(ABOVE(160, true))).join();
-    await w.clock.advance(600);
-    const b = bgs(await $.ui.render(ABOVE(160, true))).join();
-    expect(a).not.toBe(b);
+    await settle(w);
+    const tree = await $.ui.render(ABOVE(100));
+    expect(edges(tree)).toHaveLength(4);
+    const t = textOf(tree);
+    for (const fact of ["central", "main", "50%", "7d 83%", "2.1.284", "21:30"]) expect(t).toContain(fact);
   });
 
-  test("a failed tool and a finished turn pop for a moment, then the pill rests", async ($, on) => {
+  test("a single row band falls back to the one-line pill", async ($, on) => {
     const w = world(on);
     await $.session.start(START);
+    await settle(w);
+    const tree = await $.ui.render(ABOVE(220, 1));
+    expect(edges(tree)).toHaveLength(0);
+    expect(textOf(tree).startsWith("")).toBe(true);
+  });
+
+  test("the glint sweeps the glass while Claude works", async ($, on) => {
+    const w = world(on);
+    await $.session.start(START);
+    await settle(w);
     await $.turn.start({ text: "x", turnId: "t" } as any);
+    const a = bgs(await $.ui.render(ABOVE())).join();
+    await w.clock.advance(400);
+    expect(bgs(await $.ui.render(ABOVE())).join()).not.toBe(a);
+  });
+
+  test("a failed tool flashes the rim, then it settles", async ($, on) => {
+    const w = world(on);
+    await $.session.start(START);
+    await settle(w);
+    const rest = bgs(await $.ui.render(ABOVE()))[0];
     w.tool = () => ({ isError: true, result: "exit 1" });
     await $.tool.call({ tool: "Bash", command: "false" } as any);
-    const during = text(await $.ui.render(ABOVE(160, true)));
-    expect(during).toContain("✕ Bash failed");
-    expect(during).toContain("thinking");
-    await w.clock.advance(8_000);
-    await $.turn.complete({ reason: "answer", answer: "", durationMs: 8_000, isAborted: false, turnId: "t" } as any);
-    expect(text(await $.ui.render(ABOVE()))).toContain("✓ done 8s");
-    await w.clock.advance(12_000);
-    expect(text(await $.ui.render(ABOVE()))).not.toContain("done");
+    expect(bgs(await $.ui.render(ABOVE()))[0]).not.toBe(rest);
+    await w.clock.advance(1000);
+    expect(bgs(await $.ui.render(ABOVE()))[0]).toBe(rest);
   });
 
-  test("pressure: context over 90% makes the rim breathe red", async ($, on) => {
+  test("pressure over 90% keeps frames coming without any other trigger", async ($, on) => {
     const w = world(on, { tokens: 560_000 });
     await $.session.start(START);
-    const a = bgs(await $.ui.render(ABOVE()))[0];
-    await w.clock.advance(450);
-    const b = bgs(await $.ui.render(ABOVE()))[0];
-    expect(text(await $.ui.render(ABOVE()))).toContain("93%");
-    expect(a).not.toBe(b);
+    await $.ui.render(ABOVE());
+    await w.clock.advance(1500);
+    const before = w.invalidations;
+    await w.clock.advance(1000);
+    expect(w.invalidations - before).toBeGreaterThan(10);
   });
 
-  test("the working pill always fits the band, no clipped text", async ($, on) => {
+  test("/glint off stops the frame loop even under pressure", async ($, on) => {
+    const w = world(on, { tokens: 560_000 });
+    await $.session.start(START);
+    await $.ui.render(ABOVE());
+    await $.command.run({ command: "glint", args: "off", origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any);
+    await w.clock.advance(200);
+    const before = w.invalidations;
+    await w.clock.advance(2000);
+    expect(w.invalidations - before).toBeLessThan(2);
+    expect(textOf(await $.ui.render(ABOVE()))).toBe("");
+  });
+
+  test("dotted branch names stay whole, worktrees get their icon, links point at GitHub", async ($, on) => {
+    const w = world(on, { branch: "release/1.2", worktree: true });
+    await $.session.start(START);
+    await settle(w);
+    const tree = await $.ui.render(ABOVE());
+    expect(textOf(tree)).toContain(" release/1.2");
+    expect(links(tree)).toContain("https://github.com/leonardocandiani/central/tree/release/1.2");
+  });
+
+  test("wide characters are measured in cells, so the pill still fits", async ($, on) => {
+    const w = world(on, { cjk: true });
+    await $.session.start(START);
+    await settle(w);
+    const tree = await $.ui.render(ABOVE(120));
+    const mids = walk(tree).filter((n) => n.type === "Box" && String(n.props?.key ?? "").startsWith("mid"));
+    for (const m of mids) {
+      const line = textOf(m);
+      const cells = [...line].reduce((n, ch) => n + (/[　-鿿＀-￯]/.test(ch) ? 2 : 1), 0);
+      expect(cells).toBeLessThanOrEqual(120);
+    }
+    expect(textOf(tree)).toContain("プロジェクト");
+  });
+
+  test("fresh caches are read, not fetched again", async ($, on) => {
     const w = world(on);
     await $.session.start(START);
-    await $.turn.start({ text: "x", turnId: "t" } as any);
-    let t = "";
-    w.tool = async () => {
-      for (let i = 0; i < 30; i++) await w.clock.advance(50);
-      t = text(await $.ui.render(ABOVE(140, true)));
-      return { result: "ok" };
-    };
-    await $.tool.call({ tool: "Bash", command: "x", description: "bun test apps/nucleo packages" } as any);
-    expect(t).toContain("Bash bun test apps/nucleo packages");
-    expect(t).not.toContain("…");
-    expect([...t].length).toBeLessThanOrEqual(140);
-  });
-
-  test("narrow terminal keeps context and drops the clock and quiet limits first", async ($, on) => {
-    world(on);
-    await $.session.start(START);
-    const t = text(await $.ui.render(ABOVE(70)));
-    expect(t).toContain("50%");
-    expect(t).not.toContain("21:30");
-    expect(t).not.toContain("5h 11%");
-  });
-
-  test("/glint off hides the pill", async ($, on) => {
-    world(on);
-    await $.session.start(START);
-    await $.command.run({ command: "glint", args: "off", origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 160 } } as any);
-    expect(text(await $.ui.render(ABOVE()))).toBe("");
+    await settle(w);
+    expect(w.fetches).toBe(0);
   });
 });

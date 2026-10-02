@@ -153,15 +153,20 @@ Claude Code mods are function hooks that live inside the session, so the pill no
 
 <img src="mod/docs/mod-states.png" alt="glint mod states: at rest, working, a failed tool, turn done, context over 90%" width="820" />
 
-Every motion means something, and nothing animates at rest:
+It shows what Claude Code does not, the same facts as the status line: effort, thinking and fast mode, project and branch (worktree icon, dirty count, both linking to GitHub), context against the auto-compact window, which account you are on, the quota pace, the 5h and 7d windows with their reset, the Claude Code version against the latest, status.claude.com, network latency, and the date. It never repeats what Claude Code already prints, so there is no tool name, spinner or turn time in the pill. When the band is narrow it opens a second pill instead of dropping a fact.
 
-| State | What you see |
+While Claude works, the pill speaks in light alone, and nothing animates at rest:
+
+| Moment | What the glass does |
 |---|---|
-| At rest | Model, effort, project, git, context against the auto-compact window, 5h and 7d usage, clock. No timer runs. |
-| Working | The pill grows into a live activity: the tool running right now, its target and the elapsed time, while a light sweeps across the glass. |
-| A tool fails | The pill says which tool failed and the rim flashes red, even mid-turn. |
-| Turn done | `✓ done 18s` for a moment, with a green flash on the rim, then the pill settles back. |
-| Pressure | The rim takes an amber tint when a usage window passes 80%, and breathes red when the context or a window passes 90%. |
+| Session starts | The pill materialises, growing with one glint across it. |
+| Working | A specular highlight sweeps the top edge of the glass. |
+| A tool fails | The rim flashes red. |
+| Turn done | The rim flashes green. |
+| Pressure | The rim tints amber past 80% of a usage window and breathes red past 90% of the context or a window. |
+| Reduce motion on | No sweep, no breathing, no spring: the facts and the colours stay. |
+
+With three rows of band the pill is a capsule: half blocks give it a lit top edge and a shaded bottom, quadrants round the corners. With one row it falls back to the single-line pill. The mod refreshes the shared caches in `~/.claude/.cache` itself (version, status, network), so the facts stay current with the status line turned off.
 
 Install it from this repo, then turn function hooks on and drop the old `statusLine` so only the mod draws:
 
