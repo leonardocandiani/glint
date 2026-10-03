@@ -53,9 +53,9 @@ export function agendaArgv(db, nowMs) {
   return ["sqlite3", "-readonly", "-json", db, sql];
 }
 
-// Only the Leonardo's own calendars: the Central and iCloud also carry other people's
-// (Helô's, for one), and a calendar nobody listed stays out until /glint agenda show.
-export const CALENDARS_DEFAULT = ["Agenda Léo", "Leonardo Candiani - Gmail", "Rotina", "Faculdade", "Pagamentos", "Trabalho", "Freelas"];
+// Only the Leonardo's own calendars: the Central, iCloud and Calendar.app also carry other
+// people's (Helô's, for one), and a calendar nobody listed stays out until /glint agenda show.
+export const CALENDARS_DEFAULT = ["Agenda Léo", "Leonardo Candiani - Gmail"];
 
 // Which calendars show. `chosen` is the list saved with /glint agenda show|hide; without
 // one, the default list above.

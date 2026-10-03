@@ -8,6 +8,7 @@
 import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, pillCells, short, slider, spans, springStep, stateColor, textWidth } from "./pill.mjs";
 import { githubUrl, parseBranch, reserve, untilText } from "./sources.mjs";
 import { AGENDA_DB, agendaArgv, agendaView, agendaWindow, dayTitle, hhmm, monthGrid, norm, parseAgenda, untilMs, wanted } from "./agenda.mjs";
+import { calendarsArgv, eventsArgv, parseBuddyCalendars, parseBuddyEvents } from "./buddy.mjs";
 import { BODY_CALENDARS, BODY_HOME, BODY_PRINCIPAL, CALDAV_BASE, authHeader, calendarData, dedupeSort, eventsBody, failureOf, hrefOf, parseCalendars, parseEnvFile, parseIcs, pickCalendars, trusted } from "./caldav.mjs";
 
 const TTL = { version: 1800, status: 300, net: 60 };
@@ -648,20 +649,21 @@ function runDemo($) {
 // Sources: the same places the shell status line reads. The $ calls live in this file
 // because a mod may only hand $ to functions declared beside it.
 
-// The Apple calendar: from the Central's database where there is one, otherwise straight
-// from iCloud over CalDAV when an Apple ID and an app password are set.
+// The agenda: from the Central's database where there is one, otherwise live, from the
+// Calendar app of this Mac (icalBuddy) or, failing that, straight from iCloud over CalDAV.
 async function readAgenda($, home, nowMs, calendars) {
   const db = `${home}/${AGENDA_DB}`;
-  if (!(await $.fs.exists(db))) return readCaldav($, home, nowMs, calendars);
+  if (!(await $.fs.exists(db))) return readLive($, home, nowMs, calendars);
   const r = await $.process.run(agendaArgv(db, nowMs), { timeoutMs: 3000 });
   return r.exitCode === 0 ? parseAgenda(r.stdout, calendars, s.known) : null;
 }
 
-const CALDAV_TTL_MS = 5 * 60_000;
-const CALDAV_RETRY_MS = 60_000;
+// How long a live read stays fresh: the Calendar app is local and cheap, iCloud is not.
+const LIVE_TTL_MS = { buddy: 60_000, caldav: 5 * 60_000, retry: 60_000 };
 const NO_EXPAND = [400, 403, 415, 501];
 const CALDAV_FILE = ".config/glint/caldav.env";
-const caldav = { home: null, calendars: null, at: 0, pending: false, status: "" };
+const caldav = { home: null, calendars: null };
+const live = { at: 0, ttl: 0, pending: false, via: "", status: "" };
 
 // The Apple ID and app-specific password: the environment first, then the file.
 async function caldavCredentials($, home) {
@@ -675,32 +677,54 @@ async function caldavCredentials($, home) {
   return email && password ? { email: email.trim(), password: password.trim() } : null;
 }
 
-// Answers with what it has and syncs behind it, so a slow iCloud never holds the session
+// Answers with what it has and syncs behind it, so a slow source never holds the session
 // start: the pill shows the agenda as soon as the first sync lands.
-async function readCaldav($, home, nowMs, calendars) {
-  const creds = await caldavCredentials($, home);
-  if (!creds) {
-    caldav.status = `sem credenciais: ${CALDAV_FILE} com APPLE_ID_EMAIL e APPLE_APP_PASSWORD`;
-    return null;
-  }
-  if (!caldav.pending && nowMs - caldav.at >= CALDAV_TTL_MS) {
-    caldav.pending = true;
-    caldav.at = nowMs;
-    syncCaldav($, creds, nowMs, calendars)
-      .then((rows) => {
+function readLive($, home, nowMs, chosen) {
+  if (!live.pending && nowMs - live.at >= live.ttl) {
+    live.pending = true;
+    live.at = nowMs;
+    syncLive($, home, nowMs, chosen)
+      .then(({ kind, rows }) => {
         s.agenda = rows;
-        caldav.status = `iCloud direto, ${rows.length} compromissos`;
+        live.ttl = LIVE_TTL_MS[kind];
+        live.status = `${live.via}, ${rows.length} compromissos`;
         $.ui.invalidate("ui.render");
       })
       .catch((err) => {
-        caldav.at = nowMs - CALDAV_TTL_MS + CALDAV_RETRY_MS;
-        caldav.status = `iCloud: ${err?.message || "falhou"}`;
+        live.ttl = LIVE_TTL_MS.retry;
+        live.status = `erro: ${err?.message || "falhou"}`;
       })
       .finally(() => {
-        caldav.pending = false;
+        live.pending = false;
       });
   }
   return s.agenda;
+}
+
+async function syncLive($, home, nowMs, chosen) {
+  const mac = await syncBuddy($, nowMs, chosen);
+  if (mac) {
+    live.via = "Calendário do macOS";
+    return { kind: "buddy", rows: mac };
+  }
+  const creds = await caldavCredentials($, home);
+  if (!creds) throw new Error(`sem o Calendário do macOS (icalBuddy) e sem credenciais do iCloud: ${CALDAV_FILE} com APPLE_ID_EMAIL e APPLE_APP_PASSWORD`);
+  live.via = "iCloud direto";
+  return { kind: "caldav", rows: await syncCaldav($, creds, nowMs, chosen) };
+}
+
+// null where icalBuddy is missing or macOS refuses it, so the caller falls back.
+async function syncBuddy($, nowMs, chosen) {
+  const list = await $.process.run(calendarsArgv(), { timeoutMs: 5000 }).catch(() => null);
+  const names = list?.exitCode === 0 ? parseBuddyCalendars(list.stdout) : [];
+  if (!names.length) return null;
+  for (const name of names) s.known.add(name);
+  const picked = names.filter((name) => wanted(name, chosen));
+  if (!picked.length) return [];
+  const [from, to] = agendaWindow(nowMs);
+  const r = await $.process.run(eventsArgv(picked, from, to), { timeoutMs: 15_000 });
+  if (r.exitCode !== 0) throw new Error("icalBuddy falhou");
+  return dedupeSort(parseBuddyEvents(r.stdout));
 }
 
 async function syncCaldav($, creds, nowMs, chosen) {
@@ -752,12 +776,12 @@ async function agendaCommand($, rest) {
     const error = chooseCalendars(verb, words.join(" "));
     if (error) return `glint agenda: ${error}`;
     await savePrefs($);
-    caldav.at = 0;
+    live.at = 0;
     await refresh($);
   }
   const shown = [...s.known].filter((k) => wanted(k, s.calendars));
   const hidden = [...s.known].filter((k) => !wanted(k, s.calendars));
-  const source = caldav.status || (s.agenda ? "banco da Central" : "sem fonte");
+  const source = live.status || (s.agenda ? "banco da Central" : "sem fonte");
   return `glint agenda: ${source}. Mostra: ${shown.join(", ") || "nenhum"}. Oculta: ${hidden.join(", ") || "nenhum"}`;
 }
 

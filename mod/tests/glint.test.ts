@@ -36,11 +36,11 @@ async function settled($: any, above: any) {
 }
 const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
-type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] } };
+type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number } };
 
 function world(on: any, o: World = {}) {
   const clock = mock.clock(on, { now: T0 });
-  const w = { clock, tool: (() => ({ result: "ok" })) as any, invalidations: 0, fetches: 0, calls: [] as { method: string; url: string; headers: Record<string, string> }[] };
+  const w = { clock, tool: (() => ({ result: "ok" })) as any, invalidations: 0, fetches: 0, calls: [] as { method: string; url: string; headers: Record<string, string> }[], buddy: [] as string[][] };
   const files: Record<string, string> = {
     [`${HOME}/.config/claude-account/policy.json`]: JSON.stringify({ preferred: "proteauto" }),
     [`${HOME}/.config/claude-account/profiles/proteauto.json`]: JSON.stringify({ type: "native_archive", name: "proteauto" }),
@@ -97,6 +97,11 @@ function world(on: any, o: World = {}) {
     return multi(404, "");
   });
   on("process.run", ($: any, e: any) => {
+    if (e.argv[0] === "icalBuddy") {
+      (w as any).buddy.push(e.argv);
+      if (!o.mac || o.mac.exit) return { value: { exitCode: o.mac?.exit ?? 127, stdout: "", stderr: "" } };
+      return { value: { exitCode: 0, stdout: e.argv.includes("calendars") ? (o.mac.calendars ?? MAC_CALENDARS) : (o.mac.events ?? ""), stderr: "" } };
+    }
     if (e.argv[0] === "sqlite3") return { value: { exitCode: 0, stdout: JSON.stringify(o.agenda ?? []), stderr: "" } };
     const a = e.argv.join(" ");
     const proj = o.cjk ? "プロジェクト" : "central";
@@ -118,6 +123,10 @@ function world(on: any, o: World = {}) {
   return w;
 }
 
+const MAC_CALENDARS = "• Lembretes\n  type: CalDAV\n  UID: 1\n• Feriados\n  type: Subscription\n  UID: 2\n• Pessoal Helo\n  type: CalDAV\n  UID: 3\n• Agenda Léo\n  type: CalDAV\n  UID: 4\n• Leonardo Candiani - Gmail\n  type: CalDAV\n  UID: 5\n";
+const ymdOf = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const hmOf = (ms: number) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+const rec = (when: string, title: string, ...props: string[]) => ["@@EV@@" + when, title, ...props].join("@@P@@") + "\n";
 const dav = (inner: string) => `<?xml version='1.0' encoding='UTF-8'?><multistatus xmlns='DAV:'>${inner}</multistatus>`;
 const ICLOUD_PRINCIPAL = dav("<response><href>/</href><propstat><prop><current-user-principal><href>/1234567890/principal/</href></current-user-principal></prop><status>HTTP/1.1 200 OK</status></propstat></response>");
 const ICLOUD_HOME = dav("<response><href>/1234567890/principal/</href><propstat><prop><calendar-home-set xmlns='urn:ietf:params:xml:ns:caldav'><href xmlns='DAV:'>https://p42-caldav.icloud.com:443/1234567890/calendars/</href></calendar-home-set></prop><status>HTTP/1.1 200 OK</status></propstat></response>");
@@ -440,6 +449,51 @@ describe("glint mod", () => {
     await settle(w);
     expect(w.fetches).toBe(0);
   });
+  describe("the calendar of this Mac (icalBuddy)", () => {
+    const agendaText = () =>
+      rec(`${ymdOf(T0 - 30 * 60_000)} at ${hmOf(T0 - 30 * 60_000)} - ${hmOf(T0 + 30 * 60_000)}`, "Aula de inglês", "uid: aula-1") +
+      rec(`${ymdOf(T0 + 90 * 60_000)} at ${hmOf(T0 + 90 * 60_000)} - ${hmOf(T0 + 120 * 60_000)}`, "Call do Gmail", "notes: Entrar com o Google Meet: https://meet.google.com/abc-defg-hij\n   \nNão edite.", "uid: call-1@google.com") +
+      rec("2026-10-01", "Vence a fatura", "uid: fatura") +
+      rec("2026-10-04 - 2026-10-06", "Viagem", "uid: viagem");
+
+    test("reads Agenda Léo and the Gmail calendar from Calendar.app, asks only for them, and needs no password", async ($, on) => {
+      const w = world(on, { mac: { events: agendaText() } });
+      await $.session.start(START);
+      await settle(w);
+      const tree = await settled($, ABOVE(230, 12));
+      expect(pillsText(tree)).toMatch(/Aula de inglês .*30min/u);
+      const card = textOf(walk(tree).find((n) => n.props?.key === "card-clock"));
+      for (const fact of ["Call do Gmail", "23:00", "Vence a fatura"]) expect(card).toContain(fact);
+      const asked = w.buddy.find((a) => a.includes("-ic"))!;
+      expect(asked[asked.indexOf("-ic") + 1]).toBe("Agenda Léo,Leonardo Candiani - Gmail");
+      expect(w.calls.length).toBe(0);
+      const result = await $.command.run({ command: "glint", args: "agenda", origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any);
+      expect(JSON.stringify(result)).toContain("Calendário do macOS, 4 compromissos");
+      expect(JSON.stringify(result)).toContain("Oculta: Lembretes, Pessoal Helo");
+    });
+
+    test("it rereads every minute, not every 30 seconds", async ($, on) => {
+      const w = world(on, { mac: { events: agendaText() } });
+      await $.session.start(START);
+      await settle(w);
+      const reads = () => w.buddy.filter((a) => a.includes("-ic")).length;
+      const first = reads();
+      await w.clock.advance(35_000);
+      expect(reads()).toBe(first);
+      await w.clock.advance(60_000);
+      expect(reads()).toBeGreaterThan(first);
+    });
+
+    test("where icalBuddy cannot run, it falls back to iCloud when the credentials exist", async ($, on) => {
+      const w = world(on, { mac: { exit: 127 }, icloud: { creds: "env", events: [vevent([`DTSTART:${utcStamp(T0 - 30 * 60_000)}`, `DTEND:${utcStamp(T0 + 30 * 60_000)}`, "SUMMARY:Aula de inglês", "UID:aula-1"])] } });
+      await $.session.start(START);
+      await settle(w);
+      expect(pillsText(await settled($, ABOVE(230, 12)))).toContain("Aula de inglês");
+      const result = await $.command.run({ command: "glint", args: "agenda", origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any);
+      expect(JSON.stringify(result)).toContain("iCloud direto");
+    });
+  });
+
   describe("the calendar straight from iCloud (no Central on this machine)", () => {
     const events = () => [
       vevent([`DTSTART:${utcStamp(T0 - 30 * 60_000)}`, `DTEND:${utcStamp(T0 + 30 * 60_000)}`, "SUMMARY:Aula de inglês", "UID:aula-1", `RECURRENCE-ID:${utcStamp(T0 - 30 * 60_000)}`]),
@@ -458,7 +512,7 @@ describe("glint mod", () => {
       for (const fact of ["Call de produto, semana", "23:00", "● Aula de inglês", "agora, até 22:00", "Vence a fatura"]) expect(card).toContain(fact);
       expect(card).not.toContain("Cancelado");
       expect(w.calls.every((c) => new URL(c.url).hostname.endsWith("icloud.com") && c.headers.Authorization === "Basic bGVvQGljbG91ZC5jb206ZXhhbXBsZS1hcHAtcGFzc3dvcmQ=")).toBe(true);
-      expect(w.calls.filter((c) => c.method === "REPORT").map((c) => c.url.slice(-5))).toEqual(["0001/", "0002/"]);
+      expect(w.calls.filter((c) => c.method === "REPORT").map((c) => c.url.slice(-5))).toEqual(["0001/"]);
       const result = await $.command.run({ command: "glint", args: "agenda", origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any);
       expect(JSON.stringify(result)).toContain("iCloud direto, 3 compromissos");
     });
@@ -483,16 +537,15 @@ describe("glint mod", () => {
       await settle(w);
       const run = async (args: string) => JSON.stringify(await $.command.run({ command: "glint", args, origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any));
       const reports = () => w.calls.filter((c) => c.method === "REPORT").map((c) => c.url.slice(-5));
-      expect(await run("agenda")).toContain("Mostra: Agenda Léo, Pagamentos. Oculta: Pessoal Helo, Agenda da Maria");
-      expect(reports()).toEqual(["0001/", "0002/"]);
-      expect(await run("agenda hide Pagamentos")).toContain("Mostra: Agenda Léo. Oculta: Pagamentos, Pessoal Helo, Agenda da Maria");
-      expect((w as any).store.prefs.calendars).toEqual(["Agenda Léo"]);
+      expect(await run("agenda")).toContain("Mostra: Agenda Léo. Oculta: Pagamentos, Pessoal Helo, Agenda da Maria");
+      expect(reports()).toEqual(["0001/"]);
+      expect(await run("agenda show Pagamentos")).toContain("Mostra: Agenda Léo, Pagamentos. Oculta: Pessoal Helo, Agenda da Maria");
+      expect((w as any).store.prefs.calendars).toEqual(["Agenda Léo", "Pagamentos"]);
       await settle(w);
-      expect(reports().slice(2)).toEqual(["0001/"]);
-      expect(await run("agenda show pessoal helô")).toContain("Mostra: Agenda Léo, Pessoal Helo. Oculta: Pagamentos, Agenda da Maria");
-      expect((w as any).store.prefs.calendars).toEqual(["Agenda Léo", "Pessoal Helo"]);
+      expect(reports().slice(1)).toEqual(["0001/", "0002/"]);
+      expect(await run("agenda hide pagamentos")).toContain("Mostra: Agenda Léo. Oculta: Pagamentos, Pessoal Helo, Agenda da Maria");
       expect(await run("agenda show Inexistente")).toContain("não encontrado");
-      expect(await run("agenda reset")).toContain("Mostra: Agenda Léo, Pagamentos. Oculta: Pessoal Helo, Agenda da Maria");
+      expect(await run("agenda reset")).toContain("Mostra: Agenda Léo. Oculta: Pagamentos, Pessoal Helo, Agenda da Maria");
       expect((w as any).store.prefs.calendars).toBeNull();
     });
 

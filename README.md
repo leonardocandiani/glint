@@ -168,19 +168,22 @@ While Claude works, the pill speaks in light alone, and nothing animates at rest
 
 The mod refreshes the shared caches in `~/.claude/.cache` itself (version, status, network), so the facts stay current with the status line turned off.
 
-### The Apple calendar
+### The calendar
 
-The clock block also carries your Apple calendar: what is on now with a bar to its end, the next event today, and a card on hover with the month, today and tomorrow. A toast fires ten minutes before each event. glint reads it from one of two places:
+The clock block also carries your calendar: what is on now with a bar to its end, the next event today, and a card on hover with the month, today and tomorrow. A toast fires ten minutes before each event. glint reads it from the first of these that works:
 
 - **The Central's database** (`~/central/data/central.db`, read only), on a machine where the Central runs.
-- **iCloud directly over CalDAV**, everywhere else. Create an app-specific password at appleid.apple.com (Sign-In and Security) and put the pair in `~/.config/glint/caldav.env`, mode `0600`:
+- **The Calendar app of this Mac**, through [icalBuddy](https://hasseg.org/icalBuddy/) (`brew install ical-buddy`). It sees every account added to Calendar.app, iCloud and Google alike, with recurrences and time zones already resolved, and needs no password. macOS asks once for access to Calendar. Reread every minute.
+- **iCloud directly over CalDAV**, where there is no icalBuddy. Create an app-specific password at appleid.apple.com (Sign-In and Security) and put the pair in `~/.config/glint/caldav.env`, mode `0600`:
 
 ```sh
 APPLE_ID_EMAIL=you@icloud.com
 APPLE_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
-The same two names also work as environment variables, which win over the file. The password only travels to `*.icloud.com` over https. The first sync runs behind the session start and repeats every five minutes, so a slow iCloud never holds anything up. Only your own calendars show (the list is `CALENDARS_DEFAULT` in `mod/hooks/agenda.mjs`); a calendar nobody listed, like someone else's, stays out until you ask. `/glint agenda` says where the agenda comes from, which calendars show and which are hidden; `/glint agenda hide <calendar>`, `/glint agenda show <calendar>` and `/glint agenda reset` change the list, which is saved for the next session.
+The same two names also work as environment variables, which win over the file. The password only travels to `*.icloud.com` over https. The CalDAV sync repeats every five minutes. iCloud does not carry Google calendars, so the Gmail one only shows through icalBuddy or the Central.
+
+Only your own calendars show (the list is `CALENDARS_DEFAULT` in `mod/hooks/agenda.mjs`); a calendar nobody listed, like someone else's, stays out until you ask. The first read runs behind the session start, so a slow source never holds anything up. `/glint agenda` says where the agenda comes from, which calendars show and which are hidden; `/glint agenda hide <calendar>`, `/glint agenda show <calendar>` and `/glint agenda reset` change the list, which is saved for the next session.
 
 Install it from this repo, then turn function hooks on and drop the old `statusLine` so only the mod draws:
 
