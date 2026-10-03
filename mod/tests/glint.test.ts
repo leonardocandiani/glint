@@ -125,7 +125,7 @@ const calendarEntry = (id: string, name: string, color: string, comp = "VEVENT")
   `<response><href>/1234567890/calendars/${id}/</href><propstat><prop><displayname>${name}</displayname><resourcetype><collection/><calendar xmlns='urn:ietf:params:xml:ns:caldav'/></resourcetype><calendar-color xmlns='http://apple.com/ns/ical/'>${color}</calendar-color><supported-calendar-component-set xmlns='urn:ietf:params:xml:ns:caldav'><comp name='${comp}'/></supported-calendar-component-set></prop><status>HTTP/1.1 200 OK</status></propstat></response>`;
 const ICLOUD_CALENDARS = dav(
   "<response><href>/1234567890/calendars/</href><propstat><prop><displayname/><resourcetype><collection/></resourcetype></prop><status>HTTP/1.1 200 OK</status></propstat></response>" +
-    calendarEntry("0001", "Agenda Léo", "#FF2968FF") + calendarEntry("0002", "Pagamentos", "#1BADF8FF") + calendarEntry("0003", "Lembretes", "#000000FF", "VTODO") + calendarEntry("0004", "Pessoal Helo", "#c0a8d3FF"),
+    calendarEntry("0001", "Agenda Léo", "#FF2968FF") + calendarEntry("0002", "Pagamentos", "#1BADF8FF") + calendarEntry("0003", "Lembretes", "#000000FF", "VTODO") + calendarEntry("0004", "Pessoal Helo", "#c0a8d3FF") + calendarEntry("0005", "Agenda da Maria", "#123456FF"),
 );
 const icloudReport = (events: string[]) =>
   dav(events.map((ev, i) => `<response><href>/1234567890/calendars/0001/${i}.ics</href><propstat><prop><getetag>"${i}"</getetag><calendar-data xmlns='urn:ietf:params:xml:ns:caldav'>BEGIN:VCALENDAR\nVERSION:2.0\n${ev}\nEND:VCALENDAR\n</calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response>`).join(""));
@@ -483,16 +483,16 @@ describe("glint mod", () => {
       await settle(w);
       const run = async (args: string) => JSON.stringify(await $.command.run({ command: "glint", args, origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any));
       const reports = () => w.calls.filter((c) => c.method === "REPORT").map((c) => c.url.slice(-5));
-      expect(await run("agenda")).toContain("Mostra: Agenda Léo, Pagamentos. Oculta: Pessoal Helo");
+      expect(await run("agenda")).toContain("Mostra: Agenda Léo, Pagamentos. Oculta: Pessoal Helo, Agenda da Maria");
       expect(reports()).toEqual(["0001/", "0002/"]);
-      expect(await run("agenda hide Pagamentos")).toContain("Mostra: Agenda Léo. Oculta: Pagamentos, Pessoal Helo");
+      expect(await run("agenda hide Pagamentos")).toContain("Mostra: Agenda Léo. Oculta: Pagamentos, Pessoal Helo, Agenda da Maria");
       expect((w as any).store.prefs.calendars).toEqual(["Agenda Léo"]);
       await settle(w);
       expect(reports().slice(2)).toEqual(["0001/"]);
-      expect(await run("agenda show pessoal helô")).toContain("Mostra: Agenda Léo, Pessoal Helo");
+      expect(await run("agenda show pessoal helô")).toContain("Mostra: Agenda Léo, Pessoal Helo. Oculta: Pagamentos, Agenda da Maria");
       expect((w as any).store.prefs.calendars).toEqual(["Agenda Léo", "Pessoal Helo"]);
       expect(await run("agenda show Inexistente")).toContain("não encontrado");
-      expect(await run("agenda reset")).toContain("Mostra: Agenda Léo, Pagamentos. Oculta: Pessoal Helo");
+      expect(await run("agenda reset")).toContain("Mostra: Agenda Léo, Pagamentos. Oculta: Pessoal Helo, Agenda da Maria");
       expect((w as any).store.prefs.calendars).toBeNull();
     });
 

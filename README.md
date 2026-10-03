@@ -180,7 +180,7 @@ APPLE_ID_EMAIL=you@icloud.com
 APPLE_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ```
 
-The same two names also work as environment variables, which win over the file. The password only travels to `*.icloud.com` over https. The first sync runs behind the session start and repeats every five minutes, so a slow iCloud never holds anything up. Every calendar shows except the ones with Helô in the name. `/glint agenda` says where the agenda comes from, which calendars show and which are hidden; `/glint agenda hide <calendar>`, `/glint agenda show <calendar>` and `/glint agenda reset` change the list, which is saved for the next session.
+The same two names also work as environment variables, which win over the file. The password only travels to `*.icloud.com` over https. The first sync runs behind the session start and repeats every five minutes, so a slow iCloud never holds anything up. Only your own calendars show (the list is `CALENDARS_DEFAULT` in `mod/hooks/agenda.mjs`); a calendar nobody listed, like someone else's, stays out until you ask. `/glint agenda` says where the agenda comes from, which calendars show and which are hidden; `/glint agenda hide <calendar>`, `/glint agenda show <calendar>` and `/glint agenda reset` change the list, which is saved for the next session.
 
 Install it from this repo, then turn function hooks on and drop the old `statusLine` so only the mod draws:
 
