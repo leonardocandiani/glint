@@ -242,11 +242,8 @@ function fromEvent(props, cal) {
   return [{ id: `${cal.name}:${uid || text("SUMMARY")}:${stamp}`, start: start.ms, end, title: text("SUMMARY") || "(sem título)", color: cal.color, link, allDay: start.allDay }];
 }
 
-// Only the calendars the Leo wants are fetched, matched like agenda.mjs does.
-export function pickCalendars(calendars, wanted, norm) {
-  const mine = new Set(wanted.map(norm));
-  return calendars.filter((c) => mine.has(norm(c.name)));
-}
+// Only the calendars that show are fetched; `want` is the name test from agenda.mjs.
+export const pickCalendars = (calendars, want) => calendars.filter((c) => want(c.name));
 
 export const dedupeSort = (rows) => {
   const seen = new Set();

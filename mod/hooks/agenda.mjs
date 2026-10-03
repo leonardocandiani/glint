@@ -3,9 +3,6 @@
 // Central the block simply does not show.
 
 export const AGENDA_DB = "central/data/central.db";
-// Only the Leo's own calendars: the Central also syncs other people's, and a new one of
-// theirs stays out without anyone listing it.
-export const CALENDARS_DEFAULT = ["Agenda Léo", "Leonardo Candiani - Gmail"];
 const WEEKDAYS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -56,11 +53,17 @@ export function agendaArgv(db, nowMs) {
   return ["sqlite3", "-readonly", "-json", db, sql];
 }
 
-export function parseAgenda(stdout, calendars = CALENDARS_DEFAULT) {
+// Which calendars show. `chosen` is the list saved with /glint agenda show|hide; without
+// one, every calendar but Helô's: the Central and iCloud carry hers too, and a new one of
+// hers stays out without anyone listing it.
+export const wanted = (name, chosen) => (chosen ? chosen.map(norm).includes(norm(name)) : !/\bhelo\b/.test(norm(name)));
+
+// `seen`, when given, collects every calendar name in the rows, shown or not.
+export function parseAgenda(stdout, chosen = null, seen = null) {
   const rows = stdout.trim() ? JSON.parse(stdout) : [];
-  const mine = new Set(calendars.map(norm));
+  for (const e of rows) if (seen && e.calendario) seen.add(e.calendario);
   return rows
-    .filter((e) => mine.has(norm(e.calendario)))
+    .filter((e) => wanted(e.calendario, chosen))
     .map((e) => ({ id: e.id, start: e.inicio, end: e.fim ?? e.inicio, title: e.titulo, color: e.cor || null, link: e.link || null, allDay: Boolean(e.diaInteiro) }));
 }
 

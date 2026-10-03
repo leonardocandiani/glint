@@ -7,7 +7,7 @@
 
 import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, pillCells, short, slider, spans, springStep, stateColor, textWidth } from "./pill.mjs";
 import { githubUrl, parseBranch, reserve, untilText } from "./sources.mjs";
-import { AGENDA_DB, CALENDARS_DEFAULT, agendaArgv, agendaView, agendaWindow, dayTitle, hhmm, monthGrid, norm, parseAgenda, untilMs } from "./agenda.mjs";
+import { AGENDA_DB, agendaArgv, agendaView, agendaWindow, dayTitle, hhmm, monthGrid, norm, parseAgenda, untilMs, wanted } from "./agenda.mjs";
 import { BODY_CALENDARS, BODY_HOME, BODY_PRINCIPAL, CALDAV_BASE, authHeader, calendarData, dedupeSort, eventsBody, failureOf, hrefOf, parseCalendars, parseEnvFile, parseIcs, pickCalendars, trusted } from "./caldav.mjs";
 
 const TTL = { version: 1800, status: 300, net: 60 };
@@ -57,7 +57,8 @@ const s = {
   off: false,
   icons: "nerd",
   agenda: null,
-  calendars: CALENDARS_DEFAULT,
+  calendars: null,
+  known: new Set(),
   warned: new Set(),
 };
 const SOON_MS = 15 * 60_000;
@@ -422,7 +423,7 @@ export function state() {
 export function register(on) {
   on("session.start", async ($, e, next) => {
     const r = await next(e);
-    await $.command.register({ name: "glint", description: "glint pill: on, off, or demo", argumentHint: "on | off | demo | icons nerd | icons plain | agenda" });
+    await $.command.register({ name: "glint", description: "glint pill: on, off, or demo", argumentHint: "on | off | demo | icons nerd | icons plain | agenda [show|hide <calendar> | reset]" });
     s.home = (await $.env.get("HOME")) ?? "";
     s.model = prettyModel(await $.session.model());
     s.version = (await safely(async () => (await $.session.version()).version)) ?? "";
@@ -434,6 +435,7 @@ export function register(on) {
     const prefs = await $.store.get("prefs");
     s.off = prefs?.on === false;
     s.icons = prefs?.icons === "plain" ? "plain" : "nerd";
+    s.calendars = Array.isArray(prefs?.calendars) ? prefs.calendars : null;
     await refresh($);
     const now = await $.clock.now();
     s.introUntil = now + INTRO_MS;
@@ -484,7 +486,7 @@ export function register(on) {
     const arg = e.args.trim();
     if (arg === "off" || arg === "on") {
       s.off = arg === "off";
-      await $.store.set("prefs", { on: !s.off, icons: s.icons });
+      await savePrefs($);
       if (s.off) stopFrames();
       else animate($, await $.clock.now());
       $.ui.invalidate("ui.render");
@@ -492,7 +494,7 @@ export function register(on) {
     }
     if (arg === "icons nerd" || arg === "icons plain") {
       s.icons = arg.split(" ")[1];
-      await $.store.set("prefs", { on: !s.off, icons: s.icons });
+      await savePrefs($);
       $.ui.invalidate("ui.render");
       return { text: `glint icons: ${s.icons}` };
     }
@@ -500,8 +502,8 @@ export function register(on) {
       runDemo($);
       return { text: "glint demo: about 12 seconds" };
     }
-    if (arg === "agenda") return { text: `glint agenda: ${caldav.status || (s.agenda ? "banco da Central" : "sem fonte")}` };
-    return { text: "usage: /glint on | off | demo | icons nerd | icons plain | agenda" };
+    if (arg === "agenda" || arg.startsWith("agenda ")) return { text: await agendaCommand($, arg.slice(6).trim()) };
+    return { text: "usage: /glint on | off | demo | icons nerd | icons plain | agenda [show|hide <calendar> | reset]" };
   });
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
@@ -652,7 +654,7 @@ async function readAgenda($, home, nowMs, calendars) {
   const db = `${home}/${AGENDA_DB}`;
   if (!(await $.fs.exists(db))) return readCaldav($, home, nowMs, calendars);
   const r = await $.process.run(agendaArgv(db, nowMs), { timeoutMs: 3000 });
-  return r.exitCode === 0 ? parseAgenda(r.stdout, calendars) : null;
+  return r.exitCode === 0 ? parseAgenda(r.stdout, calendars, s.known) : null;
 }
 
 const CALDAV_TTL_MS = 5 * 60_000;
@@ -701,7 +703,7 @@ async function readCaldav($, home, nowMs, calendars) {
   return s.agenda;
 }
 
-async function syncCaldav($, creds, nowMs, wanted) {
+async function syncCaldav($, creds, nowMs, chosen) {
   const auth = authHeader(creds.email, creds.password);
   const send = async (method, url, body, depth) => {
     if (!trusted(url)) throw new Error("destino fora do iCloud");
@@ -716,14 +718,47 @@ async function syncCaldav($, creds, nowMs, wanted) {
     if (!home) throw new Error("iCloud sem calendar-home-set");
     caldav.home = new URL(home, CALDAV_BASE).toString();
     caldav.calendars = parseCalendars((await send("PROPFIND", caldav.home, BODY_CALENDARS, "1")).text, caldav.home);
+    for (const c of caldav.calendars) s.known.add(c.name);
   }
   const [from, to] = agendaWindow(nowMs);
   const rows = [];
-  for (const cal of pickCalendars(caldav.calendars, wanted, norm)) {
+  for (const cal of pickCalendars(caldav.calendars, (name) => wanted(name, chosen))) {
     const r = await send("REPORT", cal.url, eventsBody(from, to), "1").catch((err) => (NO_EXPAND.includes(err.status) ? send("REPORT", cal.url, eventsBody(from, to, false), "1") : Promise.reject(err)));
     for (const ics of calendarData(r.text)) rows.push(...parseIcs(ics, cal));
   }
   return dedupeSort(rows);
+}
+
+const savePrefs = ($) => $.store.set("prefs", { on: !s.off, icons: s.icons, calendars: s.calendars });
+
+// show / hide / reset change the list; the answer is an error text, or null when it changed.
+function chooseCalendars(verb, name) {
+  if (verb === "reset") {
+    s.calendars = null;
+    return null;
+  }
+  const hit = [...s.known].find((k) => norm(k) === norm(name));
+  if (!hit) return `calendário "${name}" não encontrado. Conhecidos: ${[...s.known].join(", ") || "(ainda sem lista, o primeiro sync não terminou)"}`;
+  const now = [...s.known].filter((k) => wanted(k, s.calendars));
+  s.calendars = verb === "show" ? [...new Set([...now, hit])] : now.filter((k) => k !== hit);
+  return null;
+}
+
+// /glint agenda: where the agenda comes from and which calendars show. show, hide and
+// reset save the list (in $.store, so it holds in the next session) and resync at once.
+async function agendaCommand($, rest) {
+  const [verb, ...words] = rest.split(/\s+/).filter(Boolean);
+  if (["show", "hide", "reset"].includes(verb)) {
+    const error = chooseCalendars(verb, words.join(" "));
+    if (error) return `glint agenda: ${error}`;
+    await savePrefs($);
+    caldav.at = 0;
+    await refresh($);
+  }
+  const shown = [...s.known].filter((k) => wanted(k, s.calendars));
+  const hidden = [...s.known].filter((k) => !wanted(k, s.calendars));
+  const source = caldav.status || (s.agenda ? "banco da Central" : "sem fonte");
+  return `glint agenda: ${source}. Mostra: ${shown.join(", ") || "nenhum"}. Oculta: ${hidden.join(", ") || "nenhum"}`;
 }
 
 async function readGit($) {

@@ -25,4 +25,4 @@ Estado em 02/10/2026, 09:47. Branch `feat/mod`, worktree `~/tools/_wt-glint-mod`
 
 - Calendários: só "Agenda Léo" e "Leonardo Candiani - Gmail" (lista do que mostrar, sem acento na comparação). O Gmail ainda não chega: a Central só sincroniza o iCloud; falta o feed ICS do Google em `AGENDA_ICS_URLS` da Central, com o nome "Leonardo Candiani - Gmail".
 - Título longo do compromisso empurra o relógio para a segunda pílula em 150 colunas; avaliar corte em ~22 caracteres.
-- A lista de calendários é `CALENDARS_DEFAULT` no código; virar opção salva em `$.store` (`/glint agenda <calendário>`).
+- Calendários: o padrão mostra todos menos os da Helô; `/glint agenda show|hide <calendário>` salva a lista em `$.store`.
