@@ -212,6 +212,15 @@ export function parseMoment(prop) {
 
 const MEETING = /https?:\/\/(?:[\w-]+\.)?(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com|teams\.live\.com|granola\.ai|whereby\.com|webex\.com)\/[^\s<>"')\\]*/i;
 
+// The first video-call link in any of the texts.
+export function meetingLink(...texts) {
+  for (const t of texts) {
+    const m = t ? MEETING.exec(t) : null;
+    if (m) return m[0];
+  }
+  return null;
+}
+
 // Every VEVENT of an iCalendar text as a row. A cancelled one is dropped; with <c:expand>
 // each occurrence of a series is already its own VEVENT.
 export function parseIcs(text, cal) {
@@ -236,7 +245,7 @@ function fromEvent(props, cal) {
   const endMoment = parseMoment(props.DTEND);
   const end = endMoment ? endMoment.ms : start.allDay ? start.ms + 86_400_000 : start.ms;
   const text = (name) => (props[name] ? unescape_(props[name].value).trim() : "");
-  const link = text("URL") || (MEETING.exec(text("LOCATION"))?.[0] ?? MEETING.exec(text("DESCRIPTION"))?.[0]) || null;
+  const link = text("URL") || meetingLink(text("LOCATION"), text("DESCRIPTION"));
   const uid = text("UID");
   const stamp = props["RECURRENCE-ID"]?.value ?? props.DTSTART.value;
   return [{ id: `${cal.name}:${uid || text("SUMMARY")}:${stamp}`, start: start.ms, end, title: text("SUMMARY") || "(sem título)", color: cal.color, link, allDay: start.allDay }];
