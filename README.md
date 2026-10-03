@@ -145,6 +145,58 @@ The installer copies the script into `~/.claude/`, backs up anything it replaces
 
 That's it. By default the context bar measures against the model's reported context size. If you'd rather it track how close you are to an auto-compaction, opt in (see Configuration).
 
+## glint as a mod (early access)
+
+Claude Code mods are function hooks that live inside the session, so the pill no longer has to be a line of text redrawn once a second. As a mod, glint sits in the band above the prompt and moves with what Claude is doing, the way the Dynamic Island does:
+
+<img src="mod/docs/demo.gif" alt="glint mod: the pill grows into a live activity, a light sweeps across the glass, a failed tool flashes red, a finished turn flashes green" width="820" />
+
+<img src="mod/docs/mod-states.png" alt="glint mod states: at rest, working, a failed tool, turn done, context over 90%" width="820" />
+
+It shows what Claude Code does not, the same facts as the status line: effort, thinking and fast mode, project and branch (worktree icon, dirty count, both linking to GitHub), context against the auto-compact window, which account you are on, the quota pace, the 5h and 7d windows with their reset, the Claude Code version against the latest, status.claude.com, network latency, and the date. It never repeats what Claude Code already prints, so there is no tool name, spinner or turn time in the pill. When the band is narrow it opens a second pill instead of dropping a fact.
+
+While Claude works, the pill speaks in light alone, and nothing animates at rest:
+
+| Moment | What the glass does |
+|---|---|
+| Session starts | The pill materialises, growing with one glint across it. |
+| Working | A specular highlight sweeps the top edge of the glass. |
+| A tool fails | The rim flashes red. |
+| Turn done | The rim flashes green. |
+| Pressure | The rim tints amber past 80% of a usage window and breathes red past 90% of the context or a window. |
+| Reduce motion on | No sweep, no breathing, no spring: the facts and the colours stay. |
+
+The mod refreshes the shared caches in `~/.claude/.cache` itself (version, status, network), so the facts stay current with the status line turned off.
+
+### The Apple calendar
+
+The clock block also carries your Apple calendar: what is on now with a bar to its end, the next event today, and a card on hover with the month, today and tomorrow. A toast fires ten minutes before each event. glint reads it from one of two places:
+
+- **The Central's database** (`~/central/data/central.db`, read only), on a machine where the Central runs.
+- **iCloud directly over CalDAV**, everywhere else. Create an app-specific password at appleid.apple.com (Sign-In and Security) and put the pair in `~/.config/glint/caldav.env`, mode `0600`:
+
+```sh
+APPLE_ID_EMAIL=you@icloud.com
+APPLE_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+```
+
+The same two names also work as environment variables, which win over the file. The password only travels to `*.icloud.com` over https. The first sync runs behind the session start and repeats every five minutes, so a slow iCloud never holds anything up. Every calendar shows except the ones with Helô in the name. `/glint agenda` says where the agenda comes from, which calendars show and which are hidden; `/glint agenda hide <calendar>`, `/glint agenda show <calendar>` and `/glint agenda reset` change the list, which is saved for the next session.
+
+Install it from this repo, then turn function hooks on and drop the old `statusLine` so only the mod draws:
+
+```sh
+claude plugin marketplace add leonardocandiani/glint
+claude plugin install glint@glint
+```
+
+```json
+{
+  "env": { "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1" }
+}
+```
+
+`/glint demo` plays every state in about 12 seconds without a model call, and `/glint off` hides the pill. Function hooks are early access in Claude Code 2.1.280 and later, and the API may change between releases. Inside tmux, Claude Code drops to 256 colours, so the glass shows as bands rather than a gradient.
+
 ## The panel
 
 Everything the bar can show is a part, and the panel is where you decide which
