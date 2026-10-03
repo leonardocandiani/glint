@@ -93,6 +93,7 @@ function world(on: any, o: World = {}) {
     if (e.url === "https://caldav.icloud.com/1234567890/principal/") return multi(207, ICLOUD_HOME);
     if (e.url === "https://p42-caldav.icloud.com/1234567890/calendars/") return multi(207, ICLOUD_CALENDARS);
     if (method === "REPORT" && e.url.endsWith("0001/")) return multi(207, icloudReport(ic.events ?? []));
+    if (method === "REPORT") return multi(207, icloudReport([]));
     return multi(404, "");
   });
   on("process.run", ($: any, e: any) => {
@@ -124,7 +125,7 @@ const calendarEntry = (id: string, name: string, color: string, comp = "VEVENT")
   `<response><href>/1234567890/calendars/${id}/</href><propstat><prop><displayname>${name}</displayname><resourcetype><collection/><calendar xmlns='urn:ietf:params:xml:ns:caldav'/></resourcetype><calendar-color xmlns='http://apple.com/ns/ical/'>${color}</calendar-color><supported-calendar-component-set xmlns='urn:ietf:params:xml:ns:caldav'><comp name='${comp}'/></supported-calendar-component-set></prop><status>HTTP/1.1 200 OK</status></propstat></response>`;
 const ICLOUD_CALENDARS = dav(
   "<response><href>/1234567890/calendars/</href><propstat><prop><displayname/><resourcetype><collection/></resourcetype></prop><status>HTTP/1.1 200 OK</status></propstat></response>" +
-    calendarEntry("0001", "Agenda Léo", "#FF2968FF") + calendarEntry("0002", "Pagamentos", "#1BADF8FF") + calendarEntry("0003", "Lembretes", "#000000FF", "VTODO"),
+    calendarEntry("0001", "Agenda Léo", "#FF2968FF") + calendarEntry("0002", "Pagamentos", "#1BADF8FF") + calendarEntry("0003", "Lembretes", "#000000FF", "VTODO") + calendarEntry("0004", "Pessoal Helo", "#c0a8d3FF"),
 );
 const icloudReport = (events: string[]) =>
   dav(events.map((ev, i) => `<response><href>/1234567890/calendars/0001/${i}.ics</href><propstat><prop><getetag>"${i}"</getetag><calendar-data xmlns='urn:ietf:params:xml:ns:caldav'>BEGIN:VCALENDAR\nVERSION:2.0\n${ev}\nEND:VCALENDAR\n</calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response>`).join(""));
@@ -331,7 +332,7 @@ describe("glint mod", () => {
 
   test("with nothing close, the pill shows only date and time and the card holds the day and the month", async ($, on) => {
     const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).getTime();
-    const w = world(on, { agenda: [{ id: "f", inicio: at(2, 8, 30), fim: at(2, 10), titulo: "Grupo de estudos", calendario: "Faculdade", cor: "#b9e632", diaInteiro: 0 },
+    const w = world(on, { agenda: [{ id: "f", inicio: at(2, 8, 30), fim: at(2, 10), titulo: "Terapia Helô", calendario: "Pessoal Helo", cor: "#c0a8d3", diaInteiro: 0 },
       { id: "t", inicio: at(2, 9), fim: at(2, 12), titulo: "Trabalho", calendario: "Agenda Leo", cor: "#0088ff", diaInteiro: 0 },
       { id: "g", inicio: at(2, 14), fim: at(2, 15), titulo: "Reunião", calendario: "Leonardo Candiani - Gmail", cor: "#ea4335", diaInteiro: 0 }] });
     await $.session.start(START);
@@ -342,7 +343,7 @@ describe("glint mod", () => {
     const card = textOf(walk(tree).find((n) => n.props?.key === "card-clock"));
     expect(card).toContain("nada na sua agenda hoje");
     for (const fact of ["09:00  ○ Trabalho", "14:00  ○ Reunião"]) expect(card).toContain(fact);
-    expect(textOf(tree)).not.toContain("Grupo de estudos");
+    expect(textOf(tree)).not.toContain("Terapia Helô");
   });
 
   test("an event shows on the pill from one hour before, not earlier", async ($, on) => {
@@ -393,7 +394,7 @@ describe("glint mod", () => {
     await $.session.start(START);
     await settle(w);
     const t = textOf(await $.ui.render(ABOVE()));
-    expect((w as any).store.prefs).toEqual({ on: true, icons: "plain" });
+    expect((w as any).store.prefs).toEqual({ on: true, icons: "plain", calendars: null });
     for (const fact of ["xhigh", "✦", "⎇ main •2"]) expect(t).toContain(fact);
     expect(t).not.toContain("\ue725");
   });
@@ -457,7 +458,7 @@ describe("glint mod", () => {
       for (const fact of ["Call de produto, semana", "23:00", "● Aula de inglês", "agora, até 22:00", "Vence a fatura"]) expect(card).toContain(fact);
       expect(card).not.toContain("Cancelado");
       expect(w.calls.every((c) => new URL(c.url).hostname.endsWith("icloud.com") && c.headers.Authorization === "Basic bGVvQGljbG91ZC5jb206ZXhhbXBsZS1hcHAtcGFzc3dvcmQ=")).toBe(true);
-      expect(w.calls.filter((c) => c.method === "REPORT").map((c) => c.url)).toEqual(["https://p42-caldav.icloud.com/1234567890/calendars/0001/"]);
+      expect(w.calls.filter((c) => c.method === "REPORT").map((c) => c.url.slice(-5))).toEqual(["0001/", "0002/"]);
       const result = await $.command.run({ command: "glint", args: "agenda", origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any);
       expect(JSON.stringify(result)).toContain("iCloud direto, 3 compromissos");
     });
@@ -474,6 +475,25 @@ describe("glint mod", () => {
       await w.clock.advance(200_000);
       expect(icloud().length).toBeGreaterThan(first);
       expect(icloud().filter((c) => c.url === "https://caldav.icloud.com/").length).toBe(1);
+    });
+
+    test("/glint agenda lists what shows and what hides, and show|hide|reset change it, saved for the next session", async ($, on) => {
+      const w = world(on, { icloud: { creds: "env", events: events() } });
+      await $.session.start(START);
+      await settle(w);
+      const run = async (args: string) => JSON.stringify(await $.command.run({ command: "glint", args, origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any));
+      const reports = () => w.calls.filter((c) => c.method === "REPORT").map((c) => c.url.slice(-5));
+      expect(await run("agenda")).toContain("Mostra: Agenda Léo, Pagamentos. Oculta: Pessoal Helo");
+      expect(reports()).toEqual(["0001/", "0002/"]);
+      expect(await run("agenda hide Pagamentos")).toContain("Mostra: Agenda Léo. Oculta: Pagamentos, Pessoal Helo");
+      expect((w as any).store.prefs.calendars).toEqual(["Agenda Léo"]);
+      await settle(w);
+      expect(reports().slice(2)).toEqual(["0001/"]);
+      expect(await run("agenda show pessoal helô")).toContain("Mostra: Agenda Léo, Pessoal Helo");
+      expect((w as any).store.prefs.calendars).toEqual(["Agenda Léo", "Pessoal Helo"]);
+      expect(await run("agenda show Inexistente")).toContain("não encontrado");
+      expect(await run("agenda reset")).toContain("Mostra: Agenda Léo, Pagamentos. Oculta: Pessoal Helo");
+      expect((w as any).store.prefs.calendars).toBeNull();
     });
 
     test("without credentials nothing is requested and the block stays out", async ($, on) => {
