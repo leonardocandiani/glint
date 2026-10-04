@@ -922,8 +922,10 @@ async function readModes($) {
   if (ordem.includes(piso) && ordem.indexOf(out.effort) < ordem.indexOf(piso)) {
     out.effortPedido = out.effort;
     out.effort = piso;
-  } else if (!ordem.includes(piso)) {
-    const applied = s.sid ? (await $.fs.read(`${s.home}/.claude/.cache/glint/${s.sid}.effort`).catch(() => "")).trim() : "";
+  }
+  // Sem piso, vale o que o dono escolheu no /effort (lido acima, a cada 2 s); o arquivo do turno é só o último caso.
+  if (!EFFORT_INK[out.effort] && s.sid) {
+    const applied = (await $.fs.read(`${s.home}/.claude/.cache/glint/${s.sid}.effort`).catch(() => "")).trim();
     if (EFFORT_INK[applied]) out.effort = applied;
   }
   return out;
