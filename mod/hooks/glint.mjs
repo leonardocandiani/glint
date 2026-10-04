@@ -128,6 +128,8 @@ export function blocks(now, columns) {
   const out = [];
   const id = [{ text: s.model || "Claude", fg: INK.accent, bold: true }];
   if (s.modes.effort) id.push({ text: `  ${s.icons === "nerd" && EFFORT_ICON[s.modes.effort] ? EFFORT_ICON[s.modes.effort] : s.modes.effort}`, fg: EFFORT_INK[s.modes.effort] ?? INK.second });
+  // [casa] pedido abaixo do piso: a barra diz o que foi pedido e o que vai (ex.: "low→high")
+  if (s.modes.effortPedido) id.push({ text: ` ${s.modes.effortPedido}→${s.modes.effort}`, fg: EFFORT_INK[s.modes.effort] ?? INK.second });
   if (s.modes.thinking) id.push({ text: `${gap()}${icon("think")}`, fg: INK.gold });
   if (s.modes.fast) id.push({ text: `${gap()}${icon("fast")}`, fg: INK.second });
   out.push({ id: "identity", prio: 9, parts: id });
@@ -516,6 +518,12 @@ export function register(on) {
     s.widths = [];
     s.slow?.cancel();
     s.slow = $.clock.every(REFRESH_MS, () => refresh($));
+    // [casa] o /effort não dispara evento para mods: o effort é relido a cada 2 s e redesenha quando muda
+    s.efforts?.cancel();
+    s.efforts = $.clock.every(2000, async () => {
+      const m = await safely(() => readModes($));
+      if (m && (m.effort !== s.modes.effort || m.effortPedido !== s.modes.effortPedido)) { s.modes = m; $.ui.invalidate("ui.render"); }
+    });
     animate($, now);
     return r;
   });
@@ -901,14 +909,23 @@ async function readModes($) {
     }
     const st = await $.settings.read();
     const modelo = String((await safely(() => $.session.model())) ?? "").replace(/\[.*\]$/, "");
+    // o /effort grava o padrão no modelSettings do modelo: é o que a sessão pediu, lido na hora
     const doModelo = st.modelSettings?.[modelo]?.effortLevel;
-    out.effort = String(st.effortLevel ?? doModelo ?? (await $.env.get("CLAUDE_EFFORT")) ?? "");
+    out.effort = String(doModelo ?? st.effortLevel ?? (await $.env.get("CLAUDE_EFFORT")) ?? "");
   } catch {
     out.effort = String((await $.env.get("CLAUDE_EFFORT")) ?? "");
   }
-  // A mod that sets the effort per request (a router) publishes what it applied; that beats the setting.
-  const applied = s.sid ? (await $.fs.read(`${s.home}/.claude/.cache/glint/${s.sid}.effort`).catch(() => "")).trim() : "";
-  if (EFFORT_INK[applied]) out.effort = applied;
+  // [casa] Um router com piso publica o piso (piso-effort): abaixo dele a requisição sai no piso. A barra mostra o
+  // effort que vai de fato e marca o pedido abaixo do piso. Sem piso publicado, vale o que o router aplicou no turno.
+  const ordem = ["low", "medium", "high", "xhigh", "max"];
+  const piso = (await $.fs.read(`${s.home}/.claude/.cache/glint/piso-effort`).catch(() => "")).trim();
+  if (ordem.includes(piso) && ordem.indexOf(out.effort) < ordem.indexOf(piso)) {
+    out.effortPedido = out.effort;
+    out.effort = piso;
+  } else if (!ordem.includes(piso)) {
+    const applied = s.sid ? (await $.fs.read(`${s.home}/.claude/.cache/glint/${s.sid}.effort`).catch(() => "")).trim() : "";
+    if (EFFORT_INK[applied]) out.effort = applied;
+  }
   return out;
 }
 
