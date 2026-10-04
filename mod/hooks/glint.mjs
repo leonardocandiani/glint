@@ -35,6 +35,9 @@ const EFFORT_ICON = { low: "\u{f0f86}", medium: "\u{f0f85}", high: "\u{f04c5}", 
 
 const s = {
   home: "",
+  sid: "",
+  // One line another mod publishes for this session (~/.claude/.cache/glint/<session>.status).
+  extra: "",
   model: "",
   version: "",
   modes: { effort: "", thinking: false, fast: false, reduceMotion: false },
@@ -147,6 +150,7 @@ export function blocks(now, columns) {
     });
   }
   out.push(...usageBlocks(nowS));
+  if (s.extra) out.push({ id: "extra", prio: 5, parts: [{ text: s.extra, fg: INK.second }] });
   out.push(...healthBlocks());
   const d = new Date(now);
   const stamp = { text: `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`, fg: INK.second };
@@ -410,6 +414,8 @@ async function refresh($) {
   if (git) s.git = git;
   if (modes) s.modes = modes;
   if (net) s.net = net;
+  s.account = (await safely(() => readAccount($, s.home))) ?? s.account;
+  s.extra = (await safely(() => readExtra($, s.home, s.sid, nowS))) ?? "";
   s.measure = (await safely(() => readMeasure($, s.home, s.account.name, nowS))) ?? s.measure;
   const agenda = await safely(() => readAgenda($, s.home, nowS * 1000, s.calendars));
   if (agenda !== undefined) s.agenda = agenda;
@@ -426,6 +432,7 @@ export function register(on) {
     const r = await next(e);
     await $.command.register({ name: "glint", description: "glint pill: on, off, or demo", argumentHint: "on | off | demo | icons nerd | icons plain | agenda [show|hide <calendar> | reset]" });
     s.home = (await $.env.get("HOME")) ?? "";
+    s.sid = (await safely(() => $.session.id())) ?? "";
     s.model = prettyModel(await $.session.model());
     s.version = (await safely(async () => (await $.session.version()).version)) ?? "";
     s.account = (await safely(() => readAccount($, s.home))) ?? s.account;
@@ -828,7 +835,19 @@ async function readModes($) {
   } catch {
     out.effort = String((await $.env.get("CLAUDE_EFFORT")) ?? "");
   }
+  // A mod that sets the effort per request (a router) publishes what it applied; that beats the setting.
+  const applied = s.sid ? (await $.fs.read(`${s.home}/.claude/.cache/glint/${s.sid}.effort`).catch(() => "")).trim() : "";
+  if (EFFORT_INK[applied]) out.effort = applied;
   return out;
+}
+
+// One line another mod publishes for this session, shown while fresh (5 min).
+async function readExtra($, home, sid, nowS) {
+  if (!sid) return "";
+  const p = `${home}/.claude/.cache/glint/${sid}.status`;
+  const st = await $.fs.stat(p).catch(() => null);
+  if (!st || nowS - st.mtimeMs / 1000 > 300) return "";
+  return (await $.fs.read(p)).split("\n")[0].trim().slice(0, 80);
 }
 
 async function readJson($, path) {
@@ -840,9 +859,12 @@ async function readJson($, path) {
 }
 
 async function readAccount($, home) {
+  // The native login this Claude Code really runs on, from its own config.
+  const email = String((await readJson($, `${home}/.claude.json`))?.oauthAccount?.emailAddress ?? "");
   const dir = `${home}/.config/claude-account`;
-  if (!(await $.fs.exists(`${dir}/profiles`))) return { name: "", preferred: "" };
+  if (!(await $.fs.exists(`${dir}/profiles`))) return { name: email.split("@")[0], preferred: "" };
   const policy = await readJson($, `${dir}/policy.json`);
+  const preferred = String(policy?.preferred ?? "");
   const token = await $.env.get("CLAUDE_CODE_OAUTH_TOKEN");
   let name = "";
   if (token) {
@@ -850,16 +872,17 @@ async function readAccount($, home) {
     const cache = await $.fs.read(`${home}/.claude/.cache/statusline-account-fp`).catch(() => "");
     name = cache.split("\n").find((l) => l.startsWith(`${fp} `))?.split(" ")[1] ?? "token?";
   } else {
+    // Profiles archived from that login; when two hold it, the switcher's active one, then the preferred.
+    const matches = [];
     for (const e of await $.fs.list(`${dir}/profiles`)) {
+      if (!e.name.endsWith(".json")) continue;
       const p = await readJson($, `${dir}/profiles/${e.name}`);
-      if (p?.type === "native_archive") {
-        name = p.name;
-        break;
-      }
+      if (p?.type === "native_archive" && email && String(p.label ?? "").includes(email)) matches.push(p.name);
     }
-    name ||= "nativo";
+    const active = (await $.fs.read(`${dir}/active`).catch(() => "")).trim();
+    name = matches.includes(active) ? active : matches.includes(preferred) ? preferred : matches.sort()[0] ?? (email.split("@")[0] || "nativo");
   }
-  return { name, preferred: String(policy?.preferred ?? "") };
+  return { name, preferred };
 }
 
 // Number(null) is 0, which would paint a failed measure as 0% used.
