@@ -156,7 +156,73 @@ export function blocks(now, columns) {
   const stamp = { text: `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`, fg: INK.second };
   const v = s.agenda ? agendaView(s.agenda, now) : null;
   out.push({ id: "clock", prio: v ? 6 : 1, parts: [...(v ? agendaParts(v, now) : []), stamp], card: v ? agendaCard(v, now) : monthCard(now) });
+  out.push({ id: "verse", prio: 4, parts: [{ text: `📖 ${clip(versiculo(now), narrow ? 64 : 140)}`, fg: INK.second }] });
   return out;
+}
+
+// [casa] Versículo do dia: rotação por dia do ano e hora; o Sl 118:24 (o primeiro) só na janela de sexta 18h a sábado.
+const VERSICULOS = [
+  "Este é o dia que o Senhor fez; regozijemo-nos e alegremo-nos nele. (Sl 118:24)",
+  "Porque Deus tanto amou o mundo que deu o seu Filho Unigênito. (Jo 3:16)",
+  "O Senhor é o meu pastor; nada me faltará. (Sl 23:1)",
+  "Ainda que eu ande pelo vale da sombra da morte, não temerei mal nenhum. (Sl 23:4)",
+  "Tudo posso naquele que me fortalece. (Fp 4:13)",
+  "Confie no Senhor de todo o seu coração e não se apoie em seu próprio entendimento. (Pv 3:5)",
+  "Reconheça o Senhor em todos os seus caminhos, e ele endireitará as suas veredas. (Pv 3:6)",
+  "Busquem em primeiro lugar o Reino de Deus e a sua justiça. (Mt 6:33)",
+  "Não andem ansiosos por coisa alguma. (Fp 4:6)",
+  "A paz de Deus, que excede todo o entendimento, guardará o coração de vocês. (Fp 4:7)",
+  "Deus age em todas as coisas para o bem daqueles que o amam. (Rm 8:28)",
+  "Se Deus é por nós, quem será contra nós? (Rm 8:31)",
+  "Seja forte e corajoso! Não se apavore nem desanime. (Js 1:9)",
+  "Eu e a minha casa serviremos ao Senhor. (Js 24:15)",
+  "O Senhor é a minha luz e a minha salvação; de quem terei medo? (Sl 27:1)",
+  "Deus é o nosso refúgio e fortaleza, auxílio sempre presente na adversidade. (Sl 46:1)",
+  "Aquietai-vos e sabei que eu sou Deus. (Sl 46:10)",
+  "Deleite-se no Senhor, e ele atenderá aos desejos do seu coração. (Sl 37:4)",
+  "Entregue o seu caminho ao Senhor; confie nele, e ele agirá. (Sl 37:5)",
+  "Lâmpada para os meus pés é a tua palavra, e luz para o meu caminho. (Sl 119:105)",
+  "Levanto os meus olhos para os montes; de onde vem o meu socorro? (Sl 121:1)",
+  "O meu socorro vem do Senhor, que fez os céus e a terra. (Sl 121:2)",
+  "Os filhos são herança do Senhor. (Sl 127:3)",
+  "O Senhor é a minha força e o meu escudo; nele o meu coração confia. (Sl 28:7)",
+  "Aquele que habita no abrigo do Altíssimo descansará à sombra do Todo-Poderoso. (Sl 91:1)",
+  "Ensina-nos a contar os nossos dias, para que o nosso coração alcance sabedoria. (Sl 90:12)",
+  "O temor do Senhor é o princípio da sabedoria. (Pv 9:10)",
+  "A resposta calma desvia a fúria. (Pv 15:1)",
+  "Consagre ao Senhor tudo o que você faz, e os seus planos serão bem-sucedidos. (Pv 16:3)",
+  "Quem encontra uma esposa encontra algo excelente. (Pv 18:22)",
+  "Instrua a criança segundo os objetivos que você tem para ela. (Pv 22:6)",
+  "Os que esperam no Senhor renovam as suas forças; sobem com asas como águias. (Is 40:31)",
+  "Não tema, pois estou com você; não tenha medo, pois sou o seu Deus. (Is 41:10)",
+  "Eu sei os planos que tenho para vocês, planos de fazê-los prosperar. (Jr 29:11)",
+  "As misericórdias do Senhor se renovam cada manhã; grande é a tua fidelidade. (Lm 3:22-23)",
+  "Venham a mim, todos os que estão cansados, e eu darei descanso a vocês. (Mt 11:28)",
+  "Eu sou o caminho, a verdade e a vida. (Jo 14:6)",
+  "Deixo-lhes a paz; a minha paz lhes dou. (Jo 14:27)",
+  "No mundo vocês terão aflições; contudo, tenham ânimo! Eu venci o mundo. (Jo 16:33)",
+  "O amor é paciente, o amor é bondoso. (1Co 13:4)",
+  "Permanecem a fé, a esperança e o amor; o maior deles, porém, é o amor. (1Co 13:13)",
+  "Façam tudo com amor. (1Co 16:14)",
+  "A minha graça é suficiente para você, pois o meu poder se aperfeiçoa na fraqueza. (2Co 12:9)",
+  "Pela graça vocês são salvos, por meio da fé. (Ef 2:8)",
+  "Sejam completamente humildes e dóceis; sejam pacientes. (Ef 4:2)",
+  "Maridos, amem suas esposas, assim como Cristo amou a igreja. (Ef 5:25)",
+  "Alegrem-se sempre no Senhor. Novamente direi: alegrem-se! (Fp 4:4)",
+  "Tudo o que fizerem, façam de todo o coração, como para o Senhor. (Cl 3:23)",
+  "Deus não nos deu espírito de covardia, mas de poder, de amor e de equilíbrio. (2Tm 1:7)",
+  "A fé é a certeza daquilo que esperamos e a prova das coisas que não vemos. (Hb 11:1)",
+  "Lancem sobre ele toda a sua ansiedade, porque ele tem cuidado de vocês. (1Pe 5:7)",
+  "Acima de tudo, amem-se sinceramente uns aos outros. (1Pe 4:8)",
+  "O Senhor te abençoe e te guarde. (Nm 6:24)",
+];
+function versiculo(now) {
+  const d = new Date(now), h = d.getHours(), dow = d.getDay();
+  const dia = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 864e5);
+  const sabado = (dow === 5 && h >= 18) || dow === 6;
+  let i = (dia * 7 + h) % VERSICULOS.length;
+  if (i === 0 && !sabado) i = 1;
+  return VERSICULOS[i];
 }
 
 function usageBlocks(nowS) {
@@ -467,6 +533,8 @@ export function register(on) {
     s.model = prettyModel(await $.session.model()) || s.model;
     s.modes = (await safely(() => readModes($))) ?? s.modes;
     animate($, s.turnStart);
+    // [casa] o router publica o effort aplicado no primeiro passo do turno: reler logo depois
+    $.clock.after(1500, async () => { s.modes = (await safely(() => readModes($))) ?? s.modes; });
     return next(e);
   });
 
@@ -475,6 +543,7 @@ export function register(on) {
     if (e.agentId) return r;
     if (r?.isError) pop($, await $.clock.now(), STATE.red);
     if (["Edit", "Write", "Bash", "NotebookEdit"].includes(e.tool)) safely(async () => (s.git = await readGit($)));
+    safely(async () => (s.modes = (await readModes($)) ?? s.modes));
     return r;
   });
 
@@ -831,7 +900,9 @@ async function readModes($) {
       if (row.key === "reduceMotion") out.reduceMotion = row.value === true;
     }
     const st = await $.settings.read();
-    out.effort = String(st.effortLevel ?? (await $.env.get("CLAUDE_EFFORT")) ?? "");
+    const modelo = String((await safely(() => $.session.model())) ?? "").replace(/\[.*\]$/, "");
+    const doModelo = st.modelSettings?.[modelo]?.effortLevel;
+    out.effort = String(st.effortLevel ?? doModelo ?? (await $.env.get("CLAUDE_EFFORT")) ?? "");
   } catch {
     out.effort = String((await $.env.get("CLAUDE_EFFORT")) ?? "");
   }
