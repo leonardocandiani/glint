@@ -198,6 +198,8 @@ claude plugin install glint@glint
 }
 ```
 
+The project and branch link to GitHub, and the version and status link out, only in terminals known to draw hyperlinks (iTerm2, WezTerm, Ghostty, kitty, VS Code, Windows Terminal, recent VTE; not inside tmux). Elsewhere the engine would print each URL beside the text and the pill would fill with them, so glint draws plain text. `/glint links on|off|auto` overrides the detection and is saved.
+
 `/glint demo` plays every state in about 12 seconds without a model call, and `/glint off` hides the pill. Function hooks are early access in Claude Code 2.1.280 and later, and the API may change between releases. Inside tmux, Claude Code drops to 256 colours, so the glass shows as bands rather than a gradient.
 
 ## The panel

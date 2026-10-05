@@ -36,7 +36,7 @@ async function settled($: any, above: any) {
 }
 const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
-type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number } };
+type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number }; term?: Record<string, string> };
 
 function world(on: any, o: World = {}) {
   const clock = mock.clock(on, { now: T0 });
@@ -61,7 +61,7 @@ function world(on: any, o: World = {}) {
   on("session.version", () => ({ value: { version: "2.1.284" } }));
   on("session.cwd", () => ({ value: "/Users/x/projetos/central" }));
   on("session.usage", () => ({ value: { context: { tokens: o.tokens ?? 300_000, window: 1_000_000 }, rateLimits: o.rateLimits ?? [] } }));
-  const envVars: Record<string, string> = { HOME, CLAUDE_CODE_AUTO_COMPACT_WINDOW: "600000", CLAUDE_EFFORT: "xhigh" };
+  const envVars: Record<string, string> = { HOME, CLAUDE_CODE_AUTO_COMPACT_WINDOW: "600000", CLAUDE_EFFORT: "xhigh", ...o.term };
   if (ic?.creds === "env") Object.assign(envVars, { APPLE_ID_EMAIL: "leo@icloud.com", APPLE_APP_PASSWORD: "example-app-password" });
   on("env.get", ($: any, e: any) => ({ value: envVars[e.name as string] }));
   on("config.list", () => ({ value: [{ key: "thinking", value: true }, { key: "fast", value: false }, { key: "reduceMotion", value: false }] }));
@@ -403,7 +403,7 @@ describe("glint mod", () => {
     await $.session.start(START);
     await settle(w);
     const t = textOf(await $.ui.render(ABOVE()));
-    expect((w as any).store.prefs).toEqual({ on: true, icons: "plain", calendars: null });
+    expect((w as any).store.prefs).toEqual({ on: true, icons: "plain", calendars: null, links: "auto" });
     for (const fact of ["xhigh", "✦", "⎇ main •2"]) expect(t).toContain(fact);
     expect(t).not.toContain("\ue725");
   });
@@ -421,12 +421,54 @@ describe("glint mod", () => {
   });
 
   test("dotted branch names stay whole, worktrees get their icon, links point at GitHub", async ($, on) => {
-    const w = world(on, { branch: "release/1.2", worktree: true });
+    const w = world(on, { branch: "release/1.2", worktree: true, term: { TERM_PROGRAM: "ghostty" } });
     await $.session.start(START);
     await settle(w);
     const tree = await $.ui.render(ABOVE());
     expect(textOf(tree)).toContain("\uf126 release/1.2");
     expect(links(tree)).toContain("https://github.com/leonardocandiani/central/tree/release/1.2");
+  });
+
+  describe("hyperlinks only where the terminal draws them", () => {
+    const linksIn = async ($: any, on: any, term: Record<string, string> | undefined, args?: string) => {
+      const w = world(on, { term });
+      await $.session.start(START);
+      await settle(w);
+      if (args) await $.command.run({ command: "glint", args, origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 170 } } as any);
+      const tree = await settled($, ABOVE());
+      return { tree, w, urls: links(tree) };
+    };
+
+    test("an unknown terminal (Orca, Terminal.app) gets no Link, so no URL is ever printed beside the pill", async ($, on) => {
+      const { tree, urls } = await linksIn($, on, { TERM_PROGRAM: "Orca" });
+      expect(urls).toEqual([]);
+      expect(textOf(tree)).toContain("central");
+      expect(textOf(tree)).not.toContain("https://");
+    });
+
+    const supported: [string, Record<string, string>][] = [["iTerm2", { TERM_PROGRAM: "iTerm.app" }], ["WezTerm", { TERM_PROGRAM: "WezTerm" }], ["Ghostty", { TERM_PROGRAM: "ghostty" }], ["kitty", { KITTY_WINDOW_ID: "1" }], ["VS Code", { TERM_PROGRAM: "vscode" }], ["VTE 7200", { VTE_VERSION: "7200" }], ["TERM xterm-ghostty", { TERM: "xterm-ghostty" }], ["tmux with FORCE_HYPERLINK=1", { TMUX: "x", FORCE_HYPERLINK: "1" }]];
+    for (const [name, term] of supported)
+      test(`${name} gets Links`, async ($, on) => {
+        expect((await linksIn($, on, term)).urls.length).toBeGreaterThan(0);
+      });
+
+    const refused: [string, Record<string, string>][] = [["tmux", { TERM_PROGRAM: "ghostty", TMUX: "/tmp/tmux-501/default,1,0" }], ["FORCE_HYPERLINK=0", { TERM_PROGRAM: "ghostty", FORCE_HYPERLINK: "0" }], ["an old VTE", { VTE_VERSION: "4000" }]];
+    for (const [name, term] of refused)
+      test(`${name} gets none`, async ($, on) => {
+        expect((await linksIn($, on, term)).urls).toEqual([]);
+      });
+
+    test("/glint links on forces them even in a terminal not known to draw them, and the choice is saved", async ($, on) => {
+      const forced = await linksIn($, on, { TERM_PROGRAM: "Orca" }, "links on");
+      expect(forced.urls.length).toBeGreaterThan(0);
+      expect((forced.w as any).store.prefs.links).toBe("on");
+    });
+
+    test("/glint links off removes them even where the terminal draws them", async ($, on) => {
+      const off = await linksIn($, on, { TERM_PROGRAM: "ghostty" }, "links off");
+      expect(off.urls).toEqual([]);
+      expect((off.w as any).store.prefs.links).toBe("off");
+    });
   });
 
   test("wide characters are measured in cells, so the pill still fits", async ($, on) => {

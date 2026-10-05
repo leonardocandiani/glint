@@ -8,6 +8,7 @@
 import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, pillCells, short, slider, spans, springStep, stateColor, textWidth } from "./pill.mjs";
 import { githubUrl, parseBranch, reserve, untilText } from "./sources.mjs";
 import { AGENDA_DB, agendaArgv, agendaView, agendaWindow, dayTitle, hhmm, monthGrid, norm, parseAgenda, untilMs, wanted } from "./agenda.mjs";
+import { supportsLinks } from "./terminal.mjs";
 import { calendarsArgv, eventsArgv, parseBuddyCalendars, parseBuddyEvents } from "./buddy.mjs";
 import { BODY_CALENDARS, BODY_HOME, BODY_PRINCIPAL, CALDAV_BASE, authHeader, calendarData, dedupeSort, eventsBody, failureOf, hrefOf, parseCalendars, parseEnvFile, parseIcs, pickCalendars, trusted } from "./caldav.mjs";
 
@@ -57,6 +58,8 @@ const s = {
   demo: null,
   off: false,
   icons: "nerd",
+  links: "auto",
+  linkable: false,
   agenda: null,
   calendars: null,
   known: new Set(),
@@ -424,7 +427,7 @@ export function state() {
 export function register(on) {
   on("session.start", async ($, e, next) => {
     const r = await next(e);
-    await $.command.register({ name: "glint", description: "glint pill: on, off, or demo", argumentHint: "on | off | demo | icons nerd | icons plain | agenda [show|hide <calendar> | reset]" });
+    await $.command.register({ name: "glint", description: "glint pill: on, off, or demo", argumentHint: "on | off | demo | icons nerd | icons plain | links on | off | auto | agenda [show|hide <calendar> | reset]" });
     s.home = (await $.env.get("HOME")) ?? "";
     s.model = prettyModel(await $.session.model());
     s.version = (await safely(async () => (await $.session.version()).version)) ?? "";
@@ -437,6 +440,8 @@ export function register(on) {
     s.off = prefs?.on === false;
     s.icons = prefs?.icons === "plain" ? "plain" : "nerd";
     s.calendars = Array.isArray(prefs?.calendars) ? prefs.calendars : null;
+    s.links = ["on", "off"].includes(prefs?.links) ? prefs.links : "auto";
+    s.linkable = supportsLinks(await readTerminal($));
     await refresh($);
     const now = await $.clock.now();
     s.introUntil = now + INTRO_MS;
@@ -499,12 +504,18 @@ export function register(on) {
       $.ui.invalidate("ui.render");
       return { text: `glint icons: ${s.icons}` };
     }
+    if (["links on", "links off", "links auto"].includes(arg)) {
+      s.links = arg.split(" ")[1];
+      await savePrefs($);
+      $.ui.invalidate("ui.render");
+      return { text: `glint links: ${s.links} (hyperlinks ${linksOn() ? "drawn" : "not drawn"} here)` };
+    }
     if (arg === "demo") {
       runDemo($);
       return { text: "glint demo: about 12 seconds" };
     }
     if (arg === "agenda" || arg.startsWith("agenda ")) return { text: await agendaCommand($, arg.slice(6).trim()) };
-    return { text: "usage: /glint on | off | demo | icons nerd | icons plain | agenda [show|hide <calendar> | reset]" };
+    return { text: "usage: /glint on | off | demo | icons nerd | icons plain | links on | off | auto | agenda [show|hide <calendar> | reset]" };
   });
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
@@ -543,7 +554,7 @@ function draw($, e, now) {
     let group = null;
     spans(cells).forEach((p, k) => {
       const t = Text({ key: `t${k}`, color: p.fg, backgroundColor: p.bg, bold: p.bold, children: p.text });
-      const el = p.href ? Link({ key: `l${k}`, href: p.href, children: [t] }) : t;
+      const el = p.href && linksOn() ? Link({ key: `l${k}`, href: p.href, children: [t] }) : t;
       if (p.block && withCard.has(p.block)) {
         if (!group || group.id !== p.block) {
           group = { id: p.block, children: [] };
@@ -753,7 +764,19 @@ async function syncCaldav($, creds, nowMs, chosen) {
   return dedupeSort(rows);
 }
 
-const savePrefs = ($) => $.store.set("prefs", { on: !s.off, icons: s.icons, calendars: s.calendars });
+const savePrefs = ($) => $.store.set("prefs", { on: !s.off, icons: s.icons, calendars: s.calendars, links: s.links });
+
+// Links are drawn when forced on, or in auto where the terminal is known to support them.
+const linksOn = () => s.links === "on" || (s.links === "auto" && s.linkable);
+
+// $.env.get takes the name as a literal, so the terminal variables are listed one by one.
+async function readTerminal($) {
+  const [FORCE_HYPERLINK, TMUX, TERM_PROGRAM, KITTY_WINDOW_ID, WEZTERM_EXECUTABLE, GHOSTTY_RESOURCES_DIR, WT_SESSION, KONSOLE_VERSION, VTE_VERSION, TERM] = await Promise.all([
+    $.env.get("FORCE_HYPERLINK"), $.env.get("TMUX"), $.env.get("TERM_PROGRAM"), $.env.get("KITTY_WINDOW_ID"), $.env.get("WEZTERM_EXECUTABLE"),
+    $.env.get("GHOSTTY_RESOURCES_DIR"), $.env.get("WT_SESSION"), $.env.get("KONSOLE_VERSION"), $.env.get("VTE_VERSION"), $.env.get("TERM"),
+  ]);
+  return { FORCE_HYPERLINK, TMUX, TERM_PROGRAM, KITTY_WINDOW_ID, WEZTERM_EXECUTABLE, GHOSTTY_RESOURCES_DIR, WT_SESSION, KONSOLE_VERSION, VTE_VERSION, TERM };
+}
 
 // show / hide / reset change the list; the answer is an error text, or null when it changed.
 function chooseCalendars(verb, name) {
