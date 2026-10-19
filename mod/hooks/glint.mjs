@@ -9,6 +9,7 @@ import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, pillCells, sh
 import { githubUrl, parseBranch, reserve, untilText } from "./sources.mjs";
 import { AGENDA_DB, agendaArgv, agendaView, agendaWindow, dayTitle, hhmm, monthGrid, norm, parseAgenda, untilMs, wanted } from "./agenda.mjs";
 import { supportsLinks } from "./terminal.mjs";
+import { LEIS_ARGV, LEIS_FALLBACK, LEIS_FILE, LEIS_TTL_MS, leisCard, leisSegments, parseLeisCurto, parseLeisMd, withFallback } from "./leis.mjs";
 import { calendarsArgv, eventsArgv, parseBuddyCalendars, parseBuddyEvents } from "./buddy.mjs";
 import { BODY_CALENDARS, BODY_HOME, BODY_PRINCIPAL, CALDAV_BASE, authHeader, calendarData, dedupeSort, eventsBody, failureOf, hrefOf, parseCalendars, parseEnvFile, parseIcs, pickCalendars, trusted } from "./caldav.mjs";
 
@@ -24,8 +25,8 @@ const EFFORT_INK = { low: "#f0be46", medium: "#30d758", high: "#4d9eff", xhigh: 
 // Two icon sets: the status line's Nerd Font set (the default) and plain Unicode that
 // every font draws, for a phone or a font without Nerd glyphs (/glint icons plain).
 const ICONS = {
-  plain: { think: "✦", fast: "↯", folder: "", git: "⎇", worktree: "⎇", ctx: "", tag: "v", net: "⇅", warn: "!", user: "@", gauge: ["▲", "◆", "▼"] },
-  nerd: { think: "\uf0eb", fast: "\uf0e7", folder: "\uf07b", git: "\ue725", worktree: "\uf126", ctx: "\uf1c0", tag: "\uf02b", net: "\u{f05a9}", warn: "\uf071", user: "\uf007", gauge: ["\u{f0f86}", "\u{f0f85}", "\u{f04c5}"] },
+  plain: { think: "✦", fast: "↯", folder: "", git: "⎇", worktree: "⎇", ctx: "", tag: "v", net: "⇅", warn: "!", user: "@", law: "§", gauge: ["▲", "◆", "▼"] },
+  nerd: { think: "\uf0eb", fast: "\uf0e7", folder: "\uf07b", git: "\ue725", worktree: "\uf126", ctx: "\uf1c0", tag: "\uf02b", net: "\u{f05a9}", warn: "\uf071", user: "\uf007", law: "\u{f05d1}", gauge: ["\u{f0f86}", "\u{f0f85}", "\u{f04c5}"] },
 };
 const icon = (name) => ICONS[s.icons]?.[name] ?? ICONS.plain[name];
 const withSpace = (i) => (i ? `${i} ` : "");
@@ -61,6 +62,8 @@ const s = {
   links: "auto",
   linkable: false,
   agenda: null,
+  leis: null,
+  leisAt: 0,
   calendars: null,
   known: new Set(),
   warned: new Set(),
@@ -417,6 +420,10 @@ async function refresh($) {
   const agenda = await safely(() => readAgenda($, s.home, nowS * 1000, s.calendars));
   if (agenda !== undefined) s.agenda = agenda;
   warnSoon($, nowS * 1000);
+  if (nowS * 1000 - s.leisAt >= LEIS_TTL_MS) {
+    s.leis = (await safely(() => readLeis($, s.home))) ?? s.leis ?? { list: LEIS_FALLBACK, origin: "lista fixa do glint" };
+    s.leisAt = nowS * 1000;
+  }
   $.ui.invalidate("ui.render");
 }
 
@@ -539,7 +546,8 @@ function draw($, e, now) {
   s.ctxShown = s.modes.reduceMotion ? s.ctx.pct : easeTo(s.ctxShown, s.ctx.pct);
   const pills = pack(blocks(now, columns), inner, maxPills);
   const cards = [];
-  const cardRows = Math.max(0, rowsFree - top - pills.length);
+  const lawRow = s.leis?.list.length && rowsFree - top - pills.length >= 1;
+  const cardRows = Math.max(0, rowsFree - top - pills.length - (lawRow ? 1 : 0));
   const rows = pills.map((pb, i) => {
     const segs = segmentsOf(pb);
     s.targets[i] = Math.min(columns - 4, textWidth(segs) + 4);
@@ -577,7 +585,25 @@ function draw($, e, now) {
   });
   s.widths.length = pills.length;
   s.targets.length = pills.length;
+  if (lawRow) {
+    const card = cardBox($, e, "leis", leisCard(s.leis.list, s.leis.origin, INK), 2, columns, cardRows);
+    if (card) cards.push(card);
+    rows.push(lawsRow($, e, columns));
+  }
   return Box({ flexDirection: "column", paddingX: 1, paddingTop: top, children: [...cards, ...rows] });
+}
+
+// The laws under the pills: dim, one row, cut with an ellipsis instead of wrapping.
+function lawsRow($, e, columns) {
+  const { Box, Text } = $.ui.resolve(e);
+  const segs = clipLine([{ text: `${icon("law")}${gap()}`, fg: INK.tert }, ...leisSegments(s.leis.list, INK)], columns - 4);
+  return Box({
+    key: "leis",
+    flexDirection: "row",
+    paddingLeft: 2,
+    hover: { scope: "glint-leis" },
+    children: segs.map((seg, k) => Text({ key: `s${k}`, color: seg.fg, bold: seg.bold, children: seg.text })),
+  });
 }
 
 // Cuts a card row to `max` cells, so a card never runs past the band and wraps into
@@ -667,6 +693,19 @@ async function readAgenda($, home, nowMs, calendars) {
   if (!(await $.fs.exists(db))) return readLive($, home, nowMs, calendars);
   const r = await $.process.run(agendaArgv(db, nowMs), { timeoutMs: 3000 });
   return r.exitCode === 0 ? parseAgenda(r.stdout, calendars, s.known) : null;
+}
+
+// The Central's laws: its command first, then the rule file, else null and the fixed list.
+async function readLeis($, home) {
+  const r = await safely(() => $.process.run(LEIS_ARGV, { timeoutMs: 3000 }));
+  const fromCmd = r?.exitCode === 0 ? parseLeisCurto(r.stdout) : [];
+  if (fromCmd.length) return { list: fromCmd, origin: "central leis --curto" };
+  const text = await safely(() => $.fs.read(`${home}/${LEIS_FILE}`));
+  const fromFile = parseLeisMd(text);
+  if (!fromFile.length) return null;
+  const { list, filled } = withFallback(fromFile);
+  const name = LEIS_FILE.split("/").pop();
+  return { list, origin: filled.length ? `${name}, ${filled.join(" e ")} da lista do glint` : name };
 }
 
 // How long a live read stays fresh: the Calendar app is local and cheap, iCloud is not.

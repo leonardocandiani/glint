@@ -36,7 +36,7 @@ async function settled($: any, above: any) {
 }
 const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
-type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number }; term?: Record<string, string> };
+type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number }; term?: Record<string, string>; leis?: { cmd?: string; md?: string } };
 
 function world(on: any, o: World = {}) {
   const clock = mock.clock(on, { now: T0 });
@@ -53,6 +53,7 @@ function world(on: any, o: World = {}) {
     [`${HOME}/.claude/.cache/claude-status`]: `none||${NOW_S}`,
     [`${HOME}/.claude/.cache/net-latency`]: `180|${NOW_S}`,
   };
+  if (o.leis?.md) files[`${HOME}/projetos/central/.claude/rules/00-leis-dois-p.md`] = o.leis.md;
   const ic = o.icloud;
   if (ic?.creds === "file") files[`${HOME}/.config/glint/caldav.env`] = '# iCloud\nAPPLE_ID_EMAIL=leo@icloud.com\nAPPLE_APP_PASSWORD="example-app-password"\n';
   const branch = o.branch ?? "main";
@@ -102,6 +103,7 @@ function world(on: any, o: World = {}) {
       if (!o.mac || o.mac.exit) return { value: { exitCode: o.mac?.exit ?? 127, stdout: "", stderr: "" } };
       return { value: { exitCode: 0, stdout: e.argv.includes("calendars") ? (o.mac.calendars ?? MAC_CALENDARS) : (o.mac.events ?? ""), stderr: "" } };
     }
+    if (e.argv[0] === "central") return { value: o.leis?.cmd ? { exitCode: 0, stdout: o.leis.cmd, stderr: "" } : { exitCode: 2, stdout: "error: comando desconhecido: leis\n", stderr: "" } };
     if (e.argv[0] === "sqlite3") return { value: { exitCode: 0, stdout: JSON.stringify(o.agenda ?? []), stderr: "" } };
     const a = e.argv.join(" ");
     const proj = o.cjk ? "プロジェクト" : "central";
@@ -610,4 +612,76 @@ describe("glint mod", () => {
       expect(textOf(await settled($, ABOVE(230, 12)))).not.toContain("nada na sua agenda");
     });
   });
+
+  describe("the Central's laws", () => {
+    const LEIS_MD = "# Leis dos dois P\n\n## Quem o Leonardo é\n\n## Lei P1, Leonardo, produtividade\ntexto\n## Lei P2, Central, proatividade\n## As leis se sustentam\n## Lei 3, aprimoramento constante\n## Lei 4, contexto sobre tudo\n## Nome e níveis\n";
+    const lawRowOf = (tree: any) => walk(tree).find((n) => n.type === "Box" && n.props?.key === "leis");
+    const lawCardOf = (tree: any) => walk(tree).find((n) => n.type === "Box" && n.props?.key === "card-leis");
+
+    test("the rule file gives P1 to 4, the fixed list adds 5 and 6, and the card says where each came from", async ($, on) => {
+      const w = world(on, { leis: { md: LEIS_MD } });
+      await $.session.start(START);
+      await settle(w);
+      const tree = await $.ui.render(ABOVE());
+      const row = textOf(lawRowOf(tree));
+      for (const law of ["P1 produtividade", "P2 proatividade", "3 aprimoramento", "4 contexto", "5 aprovação aprendida", "6 palavra dele"]) expect(row).toContain(law);
+      expect(row.indexOf("P2")).toBeLessThan(row.indexOf("3 apr"));
+      expect(lawRowOf(tree).hover).toEqual({ scope: "glint-leis" });
+      const card = lawCardOf(tree);
+      expect(card.props.display).toBe("none");
+      expect(card.hover).toEqual({ display: "flex", scope: "glint-leis" });
+      const ct = textOf(card);
+      expect(ct).toContain("00-leis-dois-p.md, 5 e 6 da lista do glint");
+      expect(ct).toContain("6  palavra dele");
+      const full = textOf(lawCardOf(await $.ui.render(ABOVE(170, 14))));
+      for (const title of ["Leonardo, produtividade", "contexto sobre tudo", "lei só se quebra com a palavra dele"]) expect(full).toContain(title);
+    });
+
+    test("once the file has laws 5 and 6 it stands alone, and a long heading keeps a short label", async ($, on) => {
+      const md = LEIS_MD + "## Lei 5, aprovação aprendida\n## Lei 6, lei só se quebra com a palavra dele\n";
+      const w = world(on, { leis: { md } });
+      await $.session.start(START);
+      await settle(w);
+      const tree = await $.ui.render(ABOVE(170, 14));
+      expect(textOf(lawRowOf(tree))).toContain("6 palavra dele");
+      const ct = textOf(lawCardOf(tree));
+      expect(ct).toContain("Leis da Central   00-leis-dois-p.md");
+      expect(ct).not.toContain("lista do glint");
+    });
+
+    test("central leis --curto, once it exists, is the whole list", async ($, on) => {
+      const w = world(on, { leis: { cmd: "P1 produtividade\nP2,proatividade\n7 nova lei\n", md: LEIS_MD } });
+      await $.session.start(START);
+      await settle(w);
+      const tree = await $.ui.render(ABOVE());
+      const row = textOf(lawRowOf(tree));
+      expect(row).toContain("7 nova lei");
+      expect(row).toContain("P2 proatividade");
+      expect(row).not.toContain("4 contexto");
+      expect(textOf(lawCardOf(tree))).toContain("central leis --curto");
+    });
+
+    test("with no command and no file the six laws still show, cut to the width instead of wrapping", async ($, on) => {
+      const w = world(on);
+      await $.session.start(START);
+      await settle(w);
+      const wide = textOf(lawRowOf(await $.ui.render(ABOVE())));
+      expect(wide).toContain("6 palavra dele");
+      expect(textOf(lawCardOf(await $.ui.render(ABOVE())))).toContain("lista fixa do glint");
+      const row = lawRowOf(await $.ui.render(ABOVE(60)));
+      const cells = textOf(row).length + 2 + 1;
+      expect(cells).toBeLessThanOrEqual(60);
+      expect(textOf(row).endsWith("…")).toBe(true);
+    });
+
+    test("the row gives way when the band has no room left for it", async ($, on) => {
+      const w = world(on);
+      await $.session.start(START);
+      await settle(w);
+      expect(lawRowOf(await $.ui.render(ABOVE(170, 2)))).toBeUndefined();
+      expect(pillsOf(await $.ui.render(ABOVE(170, 2))).length).toBe(1);
+      expect(lawRowOf(await $.ui.render(ABOVE(170, 3)))).toBeDefined();
+    });
+  });
+
 });
