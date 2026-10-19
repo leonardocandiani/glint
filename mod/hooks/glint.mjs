@@ -704,9 +704,10 @@ async function readLeis($, home) {
   const r = await safely(() => $.process.run(LEIS_ARGV, { timeoutMs: 3000 }));
   const fromCmd = r?.exitCode === 0 ? parseLeisCurto(r.stdout) : [];
   const fromFile = parseLeisMd(await safely(() => $.fs.read(`${home}/${LEIS_FILE}`)));
-  const titled = fromFile.length ? `, títulos do ${LEIS_FILE.split("/").pop()}` : "";
-  if (fromCmd.length) return { list: withTitles(fromCmd, fromFile), origin: `central leis --curto${titled}` };
-  return { list: withTitles(LEIS_FALLBACK, fromFile), origin: `lista fixa do glint${titled}` };
+  const base = fromCmd.length ? fromCmd : LEIS_FALLBACK;
+  const list = withTitles(base, fromFile);
+  const titled = list.some((l, i) => l.title !== base[i].title) ? `, títulos do ${LEIS_FILE.split("/").pop()}` : "";
+  return { list, origin: `${fromCmd.length ? "central leis --curto" : "lista fixa do glint"}${titled}` };
 }
 
 // How long a live read stays fresh: the Calendar app is local and cheap, iCloud is not.
