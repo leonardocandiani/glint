@@ -36,7 +36,7 @@ async function settled($: any, above: any) {
 }
 const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
-type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number }; term?: Record<string, string>; leis?: { cmd?: string; md?: string } };
+type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number }; term?: Record<string, string>; leis?: { cmd?: string; md?: string }; third?: boolean };
 
 function world(on: any, o: World = {}) {
   const clock = mock.clock(on, { now: T0 });
@@ -50,6 +50,18 @@ function world(on: any, o: World = {}) {
       history: { proteauto: [] },
     }),
     [`${HOME}/.claude/.cache/claude-latest-version`]: `2.1.290 ${NOW_S}`,
+    ...(o.third
+      ? {
+          [`${HOME}/.config/claude-account/policy.json`]: JSON.stringify({ preferred: "proteauto", fallback: "leo", reserves: ["rejani"] }),
+          [`${HOME}/.config/claude-account/active`]: "rejani\n",
+          [`${HOME}/.config/claude-account/profiles/rejani.json`]: JSON.stringify({ type: "oauth_token", name: "rejani" }),
+          [`${HOME}/.config/claude-account/measure.json`]: JSON.stringify({
+            measured_at: new Date(T0 - 60_000).toISOString(),
+            profiles: { rejani: { util_5h: 8, reset_5h: NOW_S + 3600, util_7d: 26, reset_7d: NOW_S + 2 * 86400 } },
+            history: { rejani: [] },
+          }),
+        }
+      : {}),
     [`${HOME}/.claude/.cache/claude-status`]: `none||${NOW_S}`,
     [`${HOME}/.claude/.cache/net-latency`]: `180|${NOW_S}`,
   };
@@ -73,7 +85,7 @@ function world(on: any, o: World = {}) {
     (w as any).toasts.push(e.text);
     return { value: undefined };
   });
-  on("fs.list", () => ({ value: [{ name: "proteauto.json", kind: "file" }] }));
+  on("fs.list", () => ({ value: [{ name: "proteauto.json", kind: "file" }, ...(o.third ? [{ name: "rejani.json", kind: "file" }] : [])] }));
   on("fs.read", ($: any, e: any) => (e.path in files ? { value: files[e.path] } : { deny: "missing" }));
   on("fs.write", () => ({ value: undefined }));
   const store: Record<string, unknown> = {};
@@ -153,6 +165,15 @@ const START = { surface: "terminal", isInteractive: true, cwd: "/w" } as any;
 const settle = async (w: any) => w.clock.advance(1500);
 
 describe("glint mod", () => {
+  test("a reserve account projected into the native slot shows as ③ with its own quota", async ($, on) => {
+    const w = world(on, { third: true });
+    await $.session.start(START);
+    await settle(w);
+    const t = textOf(await $.ui.render(ABOVE()));
+    for (const fact of ["③", "5h 8%", "7d 26%"]) expect(t).toContain(fact);
+    expect(t).not.toContain("①");
+  });
+
   test("shows the status line facts Claude Code does not", async ($, on) => {
     const w = world(on);
     await $.session.start(START);

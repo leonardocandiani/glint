@@ -41,7 +41,7 @@ const s = {
   version: "",
   modes: { effort: "", thinking: false, fast: false, reduceMotion: false },
   git: { project: "", branch: "", dirty: 0, files: [], worktree: false, repoUrl: null, upstream: false, ahead: 0, behind: 0, last: null },
-  account: { name: "", preferred: "" },
+  account: { name: "", preferred: "", fallback: "" },
   measure: null,
   net: { latest: "", status: "", degraded: "", netMs: "" },
   ctx: { tokens: 0, window: 0, pct: 0 },
@@ -164,9 +164,11 @@ export function blocks(now, columns) {
 function usageBlocks(nowS) {
   const parts = [];
   if (s.account.name) {
-    const primary = s.account.preferred && s.account.name === s.account.preferred;
-    const mark = !s.account.preferred ? icon("user") : primary ? "①" : "②";
-    parts.push({ text: `${mark}  `, fg: !s.account.preferred ? INK.second : primary ? INK.accent : INK.amber, bold: true });
+    // Position in the autoswitch chain: ① preferred, ② fallback, ③ a reserve or a hand-picked account.
+    const a = s.account;
+    const rank = !a.preferred ? 0 : a.name === a.preferred ? 1 : a.name === a.fallback ? 2 : 3;
+    const mark = ["", "①", "②", "③"][rank] || icon("user");
+    parts.push({ text: `${mark}  `, fg: [INK.second, INK.accent, INK.amber, INK.second][rank], bold: true });
   }
   const wins = windows(nowS);
   const risky = wins.filter((w) => w.reserve !== null).sort((a, b) => a.reserve - b.reserve)[0];
@@ -911,17 +913,36 @@ async function readAccount($, home) {
     const fp = (await $.process.run(["shasum", "-a", "256"], { stdin: token, timeoutMs: 3000 })).stdout.slice(0, 12);
     const cache = await $.fs.read(`${home}/.claude/.cache/statusline-account-fp`).catch(() => "");
     name = cache.split("\n").find((l) => l.startsWith(`${fp} `))?.split(" ")[1] ?? "token?";
-  } else {
+  } else if (await $.env.get("CLAUDE_SECURESTORAGE_CONFIG_DIR")) {
+    // A full login kept in its own Keychain item (claude-account login): match it by dir.
+    const secureDir = await $.env.get("CLAUDE_SECURESTORAGE_CONFIG_DIR");
     for (const e of await $.fs.list(`${dir}/profiles`)) {
       const p = await readJson($, `${dir}/profiles/${e.name}`);
-      if (p?.type === "native_archive") {
+      if (p?.secureStorageDir === secureDir) {
         name = p.name;
         break;
       }
     }
+    name ||= "login?";
+  } else {
+    // No variable: the session reads the native slot, which holds the projected token of the
+    // active profile (setup-token without a login of its own) or the /login of its owner.
+    const active = (await $.fs.read(`${dir}/active`).catch(() => "")).trim();
+    const ap = active ? await readJson($, `${dir}/profiles/${active}.json`) : null;
+    if (ap?.type === "oauth_token" && !ap.secureStorageDir) name = ap.name;
+    name ||= (await $.fs.read(`${dir}/native-owner`).catch(() => "")).trim();
+    if (!name) {
+      for (const e of await $.fs.list(`${dir}/profiles`)) {
+        const p = await readJson($, `${dir}/profiles/${e.name}`);
+        if (p?.type === "native_archive") {
+          name = p.name;
+          break;
+        }
+      }
+    }
     name ||= "nativo";
   }
-  return { name, preferred: String(policy?.preferred ?? "") };
+  return { name, preferred: String(policy?.preferred ?? ""), fallback: String(policy?.fallback ?? "") };
 }
 
 // Number(null) is 0, which would paint a failed measure as 0% used.
