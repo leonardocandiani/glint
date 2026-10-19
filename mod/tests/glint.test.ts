@@ -37,7 +37,7 @@ async function settled($: any, above: any) {
 const cellsOf = (text: string) => [...text].reduce((n, ch) => n + (/[\u2460-\u24ff\ue000-\uf8ff]|[\u{f0000}-\u{ffffd}]/u.test(ch) ? 2 : 1), 0);
 const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
-type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number }; term?: Record<string, string>; leis?: { cmd?: string; md?: string }; third?: boolean };
+type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number }; term?: Record<string, string>; leis?: { cmd?: string; md?: string; pdf?: boolean; site?: number }; third?: boolean };
 
 function world(on: any, o: World = {}) {
   const clock = mock.clock(on, { now: T0 });
@@ -66,6 +66,7 @@ function world(on: any, o: World = {}) {
     [`${HOME}/.claude/.cache/claude-status`]: `none||${NOW_S}`,
     [`${HOME}/.claude/.cache/net-latency`]: `180|${NOW_S}`,
   };
+  if (o.leis?.pdf) files[`${HOME}/central/data/docs/leis-da-central.pdf`] = "%PDF";
   if (o.leis?.md) files[`${HOME}/projetos/central/.claude/rules/00-leis-dois-p.md`] = o.leis.md;
   const ic = o.icloud;
   if (ic?.creds === "file") files[`${HOME}/.config/glint/caldav.env`] = '# iCloud\nAPPLE_ID_EMAIL=leo@icloud.com\nAPPLE_APP_PASSWORD="example-app-password"\n';
@@ -97,6 +98,7 @@ function world(on: any, o: World = {}) {
     return { value: undefined };
   });
   on("http.fetch", ($: any, e: any) => {
+    if (e.url === "https://leis.leonardocandiani.com.br") return o.leis?.site ? { value: { status: o.leis.site, ok: o.leis.site < 300, headers: {}, text: "" } } : { deny: "ENOTFOUND" };
     w.fetches += 1;
     if (!ic) return { value: { status: 500, ok: false, headers: {}, text: "" } };
     const method = e.init?.method ?? "GET";
@@ -638,18 +640,18 @@ describe("glint mod", () => {
   describe("the Central's laws", () => {
     const OLD_MD = "## Lei P1, Leonardo, produtividade\n## Lei P2, Central, proatividade\n## Lei 3, aprimoramento constante\n";
     const LEIS_MD = "# Leis\n\n## Quem o Leonardo é\n\n## Lei 1, T.O.P., Tudo Ordenado e Pronto (entrega mastigada)\ntexto\n## Lei 2, J.Á., Jamais Aguarde o pedido\n## As leis se sustentam\n## Lei 4, L.I.D.A., Leia Inteiro, Depois Aja\n## Nome e níveis\n";
-    const CMD = "1 Tudo Ordenado e Pronto | pronto | TOP\n2 Jamais Aguarde o pedido | já | JÁ\n3 Troque, Remova o Obsoleto, Consolide e Atualize | troca | TROCA\n4 Leia Inteiro, Depois Aja | lida | LIDA\n5 Sem Insistir no Mesmo | sim | SIM\n6 Antes de Violar Alguma Lei | aval | AVAL\n";
+    const CMD = "1 Tudo Ordenado e Pronto | T.O.P. | TOP\n2 Jamais Aguarde o pedido | J.Á. | JÁ\n3 Troque, Remova o Obsoleto, Consolide e Atualize | T.R.O.C.A. | TROCA\n4 Leia Inteiro, Depois Aja | L.I.D.A. | LIDA\n5 Sem Insistir no Mesmo | S.I.M. | SIM\n6 Antes de Violar Alguma Lei | A.V.A.L. | AVAL\n";
     const lawRowOf = (tree: any) => walk(tree).find((n) => n.type === "Box" && n.props?.key === "leis");
     const lawCardOf = (tree: any) => walk(tree).find((n) => n.type === "Box" && n.props?.key === "card-leis");
     const rowAt = async ($: any, cols: number) => textOf(lawRowOf(await $.ui.render(ABOVE(cols))));
     const cardAt = async ($: any) => textOf(lawCardOf(await $.ui.render(ABOVE(170, 14))));
 
-    test("without the command the row holds the fixed laws, and the hover card the whole phrase", async ($, on) => {
+    test("without the command the row holds the fixed dotted acronyms, and the hover card the whole phrase", async ($, on) => {
       const w = world(on, { leis: { md: LEIS_MD } });
       await $.session.start(START);
       await settle(w);
-      const tree = await $.ui.render(ABOVE(240));
-      expect(textOf(lawRowOf(tree))).toContain("1 TOP Tudo Ordenado e Pronto · 2 JÁ Jamais Aguarde o pedido · 3 TROCA Troque, Remova o Obsoleto, Consolide e Atualize · 4 LIDA Leia Inteiro, Depois Aja · 5 SIM Sem Insistir no Mesmo · 6 AVAL Antes de Violar Alguma Lei");
+      const tree = await $.ui.render(ABOVE());
+      expect(textOf(lawRowOf(tree))).toContain("1 T.O.P. · 2 J.Á. · 3 T.R.O.C.A. · 4 L.I.D.A. · 5 S.I.M. · 6 A.V.A.L.");
       expect(lawRowOf(tree).hover).toEqual({ scope: "glint-leis" });
       const card = lawCardOf(tree);
       expect(card.props.display).toBe("none");
@@ -657,8 +659,34 @@ describe("glint mod", () => {
       const full = await cardAt($);
       expect(full).toContain("lista fixa do glint, títulos do 00-leis-dois-p.md");
       expect(full).toContain("TOP  Tudo Ordenado e Pronto (entrega mastigada)");
-      expect(full).not.toContain("T.O.P.");
       expect(full).toContain("AVAL  Antes de Violar Alguma Lei");
+      expect(links(lawRowOf(tree))).toEqual([]);
+    });
+
+    test("a click on the row opens the laws page once its domain answers, the PDF until then", async ($, on) => {
+      const pdfOnly = world(on, { leis: { pdf: true }, term: { TERM_PROGRAM: "ghostty" } });
+      await $.session.start(START);
+      await settle(pdfOnly);
+      const tree = await $.ui.render(ABOVE());
+      expect(links(lawRowOf(tree)).length).toBeGreaterThan(0);
+      expect(new Set(links(lawRowOf(tree)))).toEqual(new Set([`file://${HOME}/central/data/docs/leis-da-central.pdf`]));
+      expect(await cardAt($)).toContain("clique abre o PDF");
+    });
+
+    test("the laws page wins over the PDF, even when it answers with the login redirect", async ($, on) => {
+      const w = world(on, { leis: { pdf: true, site: 302 }, term: { TERM_PROGRAM: "ghostty" } });
+      await $.session.start(START);
+      await settle(w);
+      expect(new Set(links(lawRowOf(await $.ui.render(ABOVE()))))).toEqual(new Set(["https://leis.leonardocandiani.com.br"]));
+      expect(await cardAt($)).toContain("clique abre a página das leis");
+    });
+
+    test("with neither page nor PDF, or a terminal without links, the row has no link", async ($, on) => {
+      const w = world(on, { leis: { site: 503 }, term: { TERM_PROGRAM: "ghostty" } });
+      await $.session.start(START);
+      await settle(w);
+      expect(links(lawRowOf(await $.ui.render(ABOVE())))).toEqual([]);
+      expect(await cardAt($)).not.toContain("clique");
     });
 
     test("a rule file still on the old laws lends no title to the new ones", async ($, on) => {
@@ -673,7 +701,7 @@ describe("glint mod", () => {
       expect(full).toContain("TOP  Tudo Ordenado e Pronto");
     });
 
-    test("the six laws show whole at every width, from the phrase down to the acronyms", async ($, on) => {
+    test("the six laws show whole at every width: dotted, then plain acronyms, then numbers", async ($, on) => {
       const w = world(on);
       await $.session.start(START);
       await settle(w);
@@ -681,21 +709,19 @@ describe("glint mod", () => {
         const row = await rowAt($, cols);
         expect(row.includes("…")).toBe(false);
         expect(cellsOf(row)).toBeLessThanOrEqual(cols - 4);
+        for (const echo of ["pronto", " já", " troca", " lida", " sim", " aval", "Tudo"]) expect(row).not.toContain(echo);
       }
-      for (const cols of [80, 100, 120, 160]) {
-        const row = await rowAt($, cols);
-        expect(row).toContain("1 TOP · 2 JÁ · 3 TROCA · 4 LIDA · 5 SIM · 6 AVAL");
-        for (const echo of ["pronto", " já", " troca", " lida", " sim", " aval"]) expect(row).not.toContain(echo);
-      }
-      expect(await rowAt($, 40)).toContain("TOP JÁ TROCA LIDA SIM AVAL");
-      expect(await rowAt($, 20)).toContain("1 2 3 4 5 6");
+      for (const cols of [80, 100, 120, 160]) expect(await rowAt($, cols)).toContain("1 T.O.P. · 2 J.Á. · 3 T.R.O.C.A. · 4 L.I.D.A. · 5 S.I.M. · 6 A.V.A.L.");
+      expect(await rowAt($, 60)).toContain("1 TOP · 2 JÁ · 3 TROCA · 4 LIDA · 5 SIM · 6 AVAL");
+      expect(await rowAt($, 40)).toContain("1 2 3 4 5 6");
     });
 
     test("central leis --curto, once it exists, replaces the fixed list and keeps the matching titles", async ($, on) => {
-      const w = world(on, { leis: { cmd: CMD.replace("Sem Insistir no Mesmo | sim | SIM", "Sem Insistir Nunca | nunca | SIN"), md: LEIS_MD } });
+      const w = world(on, { leis: { cmd: CMD.replace("Sem Insistir no Mesmo | S.I.M. | SIM", "Sem Insistir Nunca | S.I.N. | SIN"), md: LEIS_MD } });
       await $.session.start(START);
       await settle(w);
-      expect(await rowAt($, 80)).toContain("5 SIN");
+      expect(await rowAt($, 80)).toContain("5 S.I.N.");
+      expect(await rowAt($, 60)).toContain("5 SIN");
       const card = await cardAt($);
       expect(card).toContain("central leis --curto, títulos do 00-leis-dois-p.md");
       expect(card).toContain("Tudo Ordenado e Pronto (entrega mastigada)");

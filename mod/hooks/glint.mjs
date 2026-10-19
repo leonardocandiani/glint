@@ -9,7 +9,7 @@ import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, pillCells, sh
 import { githubUrl, parseBranch, reserve, untilText } from "./sources.mjs";
 import { AGENDA_DB, agendaArgv, agendaView, agendaWindow, dayTitle, hhmm, monthGrid, norm, parseAgenda, untilMs, wanted } from "./agenda.mjs";
 import { supportsLinks } from "./terminal.mjs";
-import { LEIS_ARGV, LEIS_FALLBACK, LEIS_FILE, LEIS_TTL_MS, leisCard, leisSegments, parseLeisCurto, parseLeisMd, withTitles } from "./leis.mjs";
+import { LEIS_ARGV, LEIS_FALLBACK, LEIS_FILE, LEIS_PDF, LEIS_TTL_MS, LEIS_URL, leisCard, leisSegments, parseLeisCurto, parseLeisMd, withTitles } from "./leis.mjs";
 import { calendarsArgv, eventsArgv, parseBuddyCalendars, parseBuddyEvents } from "./buddy.mjs";
 import { BODY_CALENDARS, BODY_HOME, BODY_PRINCIPAL, CALDAV_BASE, authHeader, calendarData, dedupeSort, eventsBody, failureOf, hrefOf, parseCalendars, parseEnvFile, parseIcs, pickCalendars, trusted } from "./caldav.mjs";
 
@@ -588,7 +588,7 @@ function draw($, e, now) {
   s.widths.length = pills.length;
   s.targets.length = pills.length;
   if (lawRow) {
-    const card = cardBox($, e, "leis", leisCard(s.leis.list, s.leis.origin, INK), 2, columns, cardRows);
+    const card = cardBox($, e, "leis", leisCard(s.leis.list, s.leis.link && linksOn() ? `${s.leis.origin}, ${s.leis.link.label}` : s.leis.origin, INK), 2, columns, cardRows);
     if (card) cards.push(card);
     rows.push(lawsRow($, e, columns));
   }
@@ -596,8 +596,9 @@ function draw($, e, now) {
 }
 
 // The laws under the pills: dim, one row, cut with an ellipsis instead of wrapping.
+// A click on the row opens the laws page (or their PDF), where the terminal draws links.
 function lawsRow($, e, columns) {
-  const { Box, Text } = $.ui.resolve(e);
+  const { Box, Text, Link } = $.ui.resolve(e);
   const lead = { text: `${icon("law")}${gap()}`, fg: INK.tert };
   const max = columns - 4;
   const segs = clipLine([lead, ...leisSegments(s.leis.list, INK, max - textWidth([lead]))], max);
@@ -606,7 +607,10 @@ function lawsRow($, e, columns) {
     flexDirection: "row",
     paddingLeft: 2,
     hover: { scope: "glint-leis" },
-    children: segs.map((seg, k) => Text({ key: `s${k}`, color: seg.fg, bold: seg.bold, children: seg.text })),
+    children: segs.map((seg, k) => {
+      const t = Text({ key: `s${k}`, color: seg.fg, bold: seg.bold, children: seg.text });
+      return s.leis.link && linksOn() ? Link({ key: `l${k}`, href: s.leis.link.href, children: [t] }) : t;
+    }),
   });
 }
 
@@ -707,7 +711,14 @@ async function readLeis($, home) {
   const base = fromCmd.length ? fromCmd : LEIS_FALLBACK;
   const list = withTitles(base, fromFile);
   const titled = list.some((l, i) => l.title !== base[i].title) ? `, títulos do ${LEIS_FILE.split("/").pop()}` : "";
-  return { list, origin: `${fromCmd.length ? "central leis --curto" : "lista fixa do glint"}${titled}` };
+  return { list, origin: `${fromCmd.length ? "central leis --curto" : "lista fixa do glint"}${titled}`, link: await leisLink($, home) };
+}
+
+async function leisLink($, home) {
+  const page = await safely(() => $.http.fetch(LEIS_URL, { method: "HEAD" }));
+  if (page?.status >= 200 && page.status < 500) return { href: LEIS_URL, label: "clique abre a página das leis" };
+  const pdf = `${home}/${LEIS_PDF}`;
+  return (await safely(() => $.fs.exists(pdf))) ? { href: `file://${encodeURI(pdf)}`, label: "clique abre o PDF" } : null;
 }
 
 // How long a live read stays fresh: the Calendar app is local and cheap, iCloud is not.

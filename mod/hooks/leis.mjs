@@ -9,6 +9,10 @@ import { textWidth } from "./pill.mjs";
 export const LEIS_FILE = "projetos/central/.claude/rules/00-leis-dois-p.md";
 export const LEIS_ARGV = ["central", "leis", "--curto"];
 export const LEIS_TTL_MS = 10 * 60_000;
+// Where a click on the row goes: the laws page once its domain answers (behind the panel
+// login, so a redirect counts), else the PDF on this Mac.
+export const LEIS_URL = "https://leis.leonardocandiani.com.br";
+export const LEIS_PDF = "central/data/docs/leis-da-central.pdf";
 
 export const LEIS_FALLBACK = [
   { n: "1", short: "Tudo Ordenado e Pronto", key: "pronto", sigla: "TOP", title: "Tudo Ordenado e Pronto" },
@@ -59,26 +63,23 @@ export function withTitles(list, fromFile) {
   });
 }
 
-// The forms the row can take, widest first. With acronyms: "1 TOP Tudo Ordenado e Pronto",
-// "1 TOP", "TOP" (a keyword next to an acronym only repeats it); without: name, keyword,
-// keyword cut to five letters. Then the numbers alone. The row takes the first that fits,
+// "T.O.P." from the command's keyword field when it is dotted, else spelled from "TOP".
+export const dottedOf = (l) => (l.key?.includes(".") ? l.key : l.sigla ? `${[...l.sigla].join(".")}.` : undefined);
+
+// The forms the row can take, widest first. With acronyms: "1 T.O.P. · 2 J.Á.", then
+// "1 TOP · 2 JÁ", then the numbers; the meaning lives in the card. Without acronyms:
+// name, keyword, keyword cut to five letters, numbers. The row takes the first that fits,
 // so every law shows whole.
 export function leisSegments(leis, ink, max = Infinity) {
   const sep = (i) => (i ? [{ text: " · ", fg: ink.tert }] : []);
   const cut = (w) => (w.length > 5 ? w.slice(0, 5) : w);
-  const keyOf = (l) => l.key ?? firstWord(l.short);
-  const labelled = (label, withSigla) =>
-    leis.flatMap((l, i) => [
-      ...sep(i),
-      { text: `${l.n} `, fg: ink.accent, bold: true },
-      ...(withSigla ? [{ text: l.sigla, fg: ink.primary, bold: true }] : []),
-      ...(label ? [{ text: `${withSigla ? " " : ""}${label(l)}`, fg: ink.second }] : []),
-    ]);
-  const bare = (text) => leis.flatMap((l, i) => [...(i ? [{ text: " " }] : []), { text: text(l), fg: ink.accent, bold: true }]);
-  const numbers = bare((l) => l.n);
+  const keyOf = (l) => (l.key && !l.key.includes(".") ? l.key : firstWord(l.short));
+  const named = (label) => leis.flatMap((l, i) => [...sep(i), { text: `${l.n} `, fg: ink.accent, bold: true }, { text: label(l), fg: ink.second }]);
+  const acronyms = (label) => leis.flatMap((l, i) => [...sep(i), { text: `${l.n} `, fg: ink.accent, bold: true }, { text: label(l), fg: ink.primary, bold: true }]);
+  const numbers = leis.flatMap((l, i) => [...(i ? [{ text: " " }] : []), { text: l.n, fg: ink.accent, bold: true }]);
   const forms = leis.every((l) => l.sigla)
-    ? [labelled((l) => l.short, true), labelled(null, true), bare((l) => l.sigla), numbers]
-    : [labelled((l) => l.short, false), labelled(keyOf, false), labelled((l) => cut(keyOf(l)), false), numbers];
+    ? [acronyms(dottedOf), acronyms((l) => l.sigla), numbers]
+    : [named((l) => l.short), named(keyOf), named((l) => cut(keyOf(l))), numbers];
   return forms.find((f) => textWidth(f) <= max) ?? numbers;
 }
 
