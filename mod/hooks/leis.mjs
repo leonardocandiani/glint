@@ -59,9 +59,10 @@ export function withTitles(list, fromFile) {
   });
 }
 
-// The forms the row can take, widest first. With acronyms: "1 TCP Tudo Chega Pronto",
-// "1 TCP pronto", "1 TCP", "TCP"; without: name, keyword, keyword cut to five letters.
-// Then the numbers alone. The row takes the first that fits, so every law shows whole.
+// The forms the row can take, widest first. With acronyms: "1 TOP Tudo Ordenado e Pronto",
+// "1 TOP", "TOP" (a keyword next to an acronym only repeats it); without: name, keyword,
+// keyword cut to five letters. Then the numbers alone. The row takes the first that fits,
+// so every law shows whole.
 export function leisSegments(leis, ink, max = Infinity) {
   const sep = (i) => (i ? [{ text: " · ", fg: ink.tert }] : []);
   const cut = (w) => (w.length > 5 ? w.slice(0, 5) : w);
@@ -76,7 +77,7 @@ export function leisSegments(leis, ink, max = Infinity) {
   const bare = (text) => leis.flatMap((l, i) => [...(i ? [{ text: " " }] : []), { text: text(l), fg: ink.accent, bold: true }]);
   const numbers = bare((l) => l.n);
   const forms = leis.every((l) => l.sigla)
-    ? [labelled((l) => l.short, true), labelled(keyOf, true), labelled(null, true), bare((l) => l.sigla), numbers]
+    ? [labelled((l) => l.short, true), labelled(null, true), bare((l) => l.sigla), numbers]
     : [labelled((l) => l.short, false), labelled(keyOf, false), labelled((l) => cut(keyOf(l)), false), numbers];
   return forms.find((f) => textWidth(f) <= max) ?? numbers;
 }
