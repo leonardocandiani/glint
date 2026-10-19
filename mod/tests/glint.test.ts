@@ -34,6 +34,7 @@ async function settled($: any, above: any) {
   for (let i = 0; i < 40; i++) await $.ui.render(above);
   return $.ui.render(above);
 }
+const cellsOf = (text: string) => [...text].reduce((n, ch) => n + (/[\u2460-\u24ff\ue000-\uf8ff]|[\u{f0000}-\u{ffffd}]/u.test(ch) ? 2 : 1), 0);
 const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
 type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number }; term?: Record<string, string>; leis?: { cmd?: string; md?: string }; third?: boolean };
@@ -636,63 +637,58 @@ describe("glint mod", () => {
 
   describe("the Central's laws", () => {
     const LEIS_MD = "# Leis dos dois P\n\n## Quem o Leonardo é\n\n## Lei P1, Leonardo, produtividade\ntexto\n## Lei P2, Central, proatividade\n## As leis se sustentam\n## Lei 3, aprimoramento constante\n## Lei 4, contexto sobre tudo\n## Nome e níveis\n";
+    const CMD = "1 Pronto | Pronto | P\n2 Antes | Antes | A\n3 Refina | Refina | R\n4 Contexto | Contexto | C\n5 Aprovado | Aprovado | A\n6 Palavra | Palavra | P\n";
     const lawRowOf = (tree: any) => walk(tree).find((n) => n.type === "Box" && n.props?.key === "leis");
     const lawCardOf = (tree: any) => walk(tree).find((n) => n.type === "Box" && n.props?.key === "card-leis");
 
-    test("the rule file gives P1 to 4, the fixed list adds 5 and 6, and the card says where each came from", async ($, on) => {
+    test("without the command the row is MARCAR, and the card borrows the rule file's titles", async ($, on) => {
       const w = world(on, { leis: { md: LEIS_MD } });
       await $.session.start(START);
       await settle(w);
       const tree = await $.ui.render(ABOVE());
-      const row = textOf(lawRowOf(tree));
-      for (const law of ["P1 produtividade", "P2 proatividade", "3 aprimoramento", "4 contexto", "5 aprovação aprendida", "6 palavra dele"]) expect(row).toContain(law);
-      expect(row.indexOf("P2")).toBeLessThan(row.indexOf("3 apr"));
+      expect(textOf(lawRowOf(tree))).toContain("1 Mastigado · 2 Antes · 3 Refina · 4 Contexto · 5 Aval · 6 Respaldo");
       expect(lawRowOf(tree).hover).toEqual({ scope: "glint-leis" });
       const card = lawCardOf(tree);
       expect(card.props.display).toBe("none");
       expect(card.hover).toEqual({ display: "flex", scope: "glint-leis" });
-      const ct = textOf(card);
-      expect(ct).toContain("00-leis-dois-p.md, 5 e 6 da lista do glint");
-      expect(ct).toContain("6  palavra dele");
+      expect(textOf(card)).toContain("lista fixa do glint, títulos do 00-leis-dois-p.md");
       const full = textOf(lawCardOf(await $.ui.render(ABOVE(170, 14))));
-      for (const title of ["Leonardo, produtividade", "contexto sobre tudo", "lei só se quebra com a palavra dele"]) expect(full).toContain(title);
+      for (const title of ["Mastigado   Leonardo, produtividade", "Antes   Central, proatividade", "Contexto   contexto sobre tudo", "Respaldo"]) expect(full).toContain(title);
     });
 
-    test("once the file has laws 5 and 6 it stands alone, and a long heading keeps a short label", async ($, on) => {
-      const md = LEIS_MD + "## Lei 5, aprovação aprendida\n## Lei 6, lei só se quebra com a palavra dele\n";
-      const w = world(on, { leis: { md } });
-      await $.session.start(START);
-      await settle(w);
-      const tree = await $.ui.render(ABOVE(170, 14));
-      expect(textOf(lawRowOf(tree))).toContain("6 palavra dele");
-      const ct = textOf(lawCardOf(tree));
-      expect(ct).toContain("Leis da Central   00-leis-dois-p.md");
-      expect(ct).not.toContain("lista do glint");
-    });
-
-    test("central leis --curto, once it exists, is the whole list", async ($, on) => {
-      const w = world(on, { leis: { cmd: "P1 produtividade\nP2,proatividade\n7 nova lei\n", md: LEIS_MD } });
-      await $.session.start(START);
-      await settle(w);
-      const tree = await $.ui.render(ABOVE());
-      const row = textOf(lawRowOf(tree));
-      expect(row).toContain("7 nova lei");
-      expect(row).toContain("P2 proatividade");
-      expect(row).not.toContain("4 contexto");
-      expect(textOf(lawCardOf(tree))).toContain("central leis --curto");
-    });
-
-    test("with no command and no file the six laws still show, cut to the width instead of wrapping", async ($, on) => {
+    test("the six laws show whole at every width: names, then letters, then the word MARCAR", async ($, on) => {
       const w = world(on);
       await $.session.start(START);
       await settle(w);
-      const wide = textOf(lawRowOf(await $.ui.render(ABOVE())));
-      expect(wide).toContain("6 palavra dele");
-      expect(textOf(lawCardOf(await $.ui.render(ABOVE())))).toContain("lista fixa do glint");
-      const row = lawRowOf(await $.ui.render(ABOVE(60)));
-      const cells = textOf(row).length + 2 + 1;
-      expect(cells).toBeLessThanOrEqual(60);
-      expect(textOf(row).endsWith("…")).toBe(true);
+      const rowAt = async (cols: number) => textOf(lawRowOf(await $.ui.render(ABOVE(cols))));
+      for (const cols of [30, 40, 60, 80, 100, 120, 160]) {
+        const row = await rowAt(cols);
+        expect(row.includes("…")).toBe(false);
+        expect(cellsOf(row)).toBeLessThanOrEqual(cols - 4);
+      }
+      for (const cols of [80, 100, 120, 160]) expect(await rowAt(cols)).toContain("1 Mastigado · 2 Antes · 3 Refina · 4 Contexto · 5 Aval · 6 Respaldo");
+      expect(await rowAt(60)).toContain("1 M · 2 A · 3 R · 4 C · 5 A · 6 R");
+      expect(await rowAt(30)).toContain("MARCAR");
+    });
+
+    test("central leis --curto, once it exists, replaces the fixed list and keeps the file's titles", async ($, on) => {
+      const w = world(on, { leis: { cmd: CMD, md: LEIS_MD } });
+      await $.session.start(START);
+      await settle(w);
+      expect(textOf(lawRowOf(await $.ui.render(ABOVE(170))))).toContain("1 Pronto · 2 Antes · 3 Refina · 4 Contexto · 5 Aprovado · 6 Palavra");
+      expect(textOf(lawRowOf(await $.ui.render(ABOVE(30))))).toContain("PARCAP");
+      const card = textOf(lawCardOf(await $.ui.render(ABOVE(170, 14))));
+      expect(card).toContain("central leis --curto");
+      expect(card).toContain("Pronto   Leonardo, produtividade");
+    });
+
+    test("a command line without keyword or letter still fits, cut to five letters, then numbers", async ($, on) => {
+      const w = world(on, { leis: { cmd: "1 produtividade\n2,proatividade\n3 aprimoramento\n4 contexto\n5 aprovação aprendida\n6 palavra dele\n" } });
+      await $.session.start(START);
+      await settle(w);
+      expect(textOf(lawRowOf(await $.ui.render(ABOVE(110))))).toContain("2 proatividade · 3 aprimoramento · 4 contexto · 5 aprovação · 6 palavra");
+      expect(textOf(lawRowOf(await $.ui.render(ABOVE(70))))).toContain("1 produ · 2 proat · 3 aprim · 4 conte · 5 aprov · 6 palav");
+      expect(textOf(lawRowOf(await $.ui.render(ABOVE(30))))).toContain("1 2 3 4 5 6");
     });
 
     test("the row gives way when the band has no room left for it", async ($, on) => {

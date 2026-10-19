@@ -9,7 +9,7 @@ import { CAP_L, CAP_R, INK, STATE, cellsWidth, contextBar, easeTo, pillCells, sh
 import { githubUrl, parseBranch, reserve, untilText } from "./sources.mjs";
 import { AGENDA_DB, agendaArgv, agendaView, agendaWindow, dayTitle, hhmm, monthGrid, norm, parseAgenda, untilMs, wanted } from "./agenda.mjs";
 import { supportsLinks } from "./terminal.mjs";
-import { LEIS_ARGV, LEIS_FALLBACK, LEIS_FILE, LEIS_TTL_MS, leisCard, leisSegments, parseLeisCurto, parseLeisMd, withFallback } from "./leis.mjs";
+import { LEIS_ARGV, LEIS_FALLBACK, LEIS_FILE, LEIS_TTL_MS, leisCard, leisSegments, parseLeisCurto, parseLeisMd, withTitles } from "./leis.mjs";
 import { calendarsArgv, eventsArgv, parseBuddyCalendars, parseBuddyEvents } from "./buddy.mjs";
 import { BODY_CALENDARS, BODY_HOME, BODY_PRINCIPAL, CALDAV_BASE, authHeader, calendarData, dedupeSort, eventsBody, failureOf, hrefOf, parseCalendars, parseEnvFile, parseIcs, pickCalendars, trusted } from "./caldav.mjs";
 
@@ -598,7 +598,9 @@ function draw($, e, now) {
 // The laws under the pills: dim, one row, cut with an ellipsis instead of wrapping.
 function lawsRow($, e, columns) {
   const { Box, Text } = $.ui.resolve(e);
-  const segs = clipLine([{ text: `${icon("law")}${gap()}`, fg: INK.tert }, ...leisSegments(s.leis.list, INK)], columns - 4);
+  const lead = { text: `${icon("law")}${gap()}`, fg: INK.tert };
+  const max = columns - 4;
+  const segs = clipLine([lead, ...leisSegments(s.leis.list, INK, max - textWidth([lead]))], max);
   return Box({
     key: "leis",
     flexDirection: "row",
@@ -697,17 +699,14 @@ async function readAgenda($, home, nowMs, calendars) {
   return r.exitCode === 0 ? parseAgenda(r.stdout, calendars, s.known) : null;
 }
 
-// The Central's laws: its command first, then the rule file, else null and the fixed list.
+// The Central's laws: its command, else the fixed list; the rule file lends both its titles.
 async function readLeis($, home) {
   const r = await safely(() => $.process.run(LEIS_ARGV, { timeoutMs: 3000 }));
   const fromCmd = r?.exitCode === 0 ? parseLeisCurto(r.stdout) : [];
-  if (fromCmd.length) return { list: fromCmd, origin: "central leis --curto" };
-  const text = await safely(() => $.fs.read(`${home}/${LEIS_FILE}`));
-  const fromFile = parseLeisMd(text);
-  if (!fromFile.length) return null;
-  const { list, filled } = withFallback(fromFile);
-  const name = LEIS_FILE.split("/").pop();
-  return { list, origin: filled.length ? `${name}, ${filled.join(" e ")} da lista do glint` : name };
+  const fromFile = parseLeisMd(await safely(() => $.fs.read(`${home}/${LEIS_FILE}`)));
+  const titled = fromFile.length ? `, títulos do ${LEIS_FILE.split("/").pop()}` : "";
+  if (fromCmd.length) return { list: withTitles(fromCmd, fromFile), origin: `central leis --curto${titled}` };
+  return { list: withTitles(LEIS_FALLBACK, fromFile), origin: `lista fixa do glint${titled}` };
 }
 
 // How long a live read stays fresh: the Calendar app is local and cheap, iCloud is not.
