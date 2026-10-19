@@ -236,7 +236,7 @@ describe("glint mod", () => {
     const w = world(on);
     await $.session.start(START);
     await settle(w);
-    const tree = await $.ui.render(ABOVE(220));
+    const tree = await $.ui.render(ABOVE(240));
     expect(pillsOf(tree)).toHaveLength(1);
     expect(textOf(pillsOf(tree)[0]).startsWith("\ue0b6")).toBe(true);
   });
@@ -636,59 +636,75 @@ describe("glint mod", () => {
   });
 
   describe("the Central's laws", () => {
-    const LEIS_MD = "# Leis dos dois P\n\n## Quem o Leonardo é\n\n## Lei P1, Leonardo, produtividade\ntexto\n## Lei P2, Central, proatividade\n## As leis se sustentam\n## Lei 3, aprimoramento constante\n## Lei 4, contexto sobre tudo\n## Nome e níveis\n";
-    const CMD = "1 Pronto | Pronto | P\n2 Antes | Antes | A\n3 Refina | Refina | R\n4 Contexto | Contexto | C\n5 Aprovado | Aprovado | A\n6 Palavra | Palavra | P\n";
+    const OLD_MD = "## Lei P1, Leonardo, produtividade\n## Lei P2, Central, proatividade\n## Lei 3, aprimoramento constante\n";
+    const LEIS_MD = "# Leis\n\n## Quem o Leonardo é\n\n## Lei 1, T.O.P., Tudo Ordenado e Pronto (entrega mastigada)\ntexto\n## Lei 2, J.Á., Jamais Aguarde o pedido\n## As leis se sustentam\n## Lei 4, L.I.D.A., Leia Inteiro, Depois Aja\n## Nome e níveis\n";
+    const CMD = "1 Tudo Ordenado e Pronto | pronto | TOP\n2 Jamais Aguarde o pedido | já | JÁ\n3 Troque, Remova o Obsoleto, Consolide e Atualize | troca | TROCA\n4 Leia Inteiro, Depois Aja | lida | LIDA\n5 Sem Insistir no Mesmo | sim | SIM\n6 Antes de Violar Alguma Lei | aval | AVAL\n";
     const lawRowOf = (tree: any) => walk(tree).find((n) => n.type === "Box" && n.props?.key === "leis");
     const lawCardOf = (tree: any) => walk(tree).find((n) => n.type === "Box" && n.props?.key === "card-leis");
+    const rowAt = async ($: any, cols: number) => textOf(lawRowOf(await $.ui.render(ABOVE(cols))));
+    const cardAt = async ($: any) => textOf(lawCardOf(await $.ui.render(ABOVE(170, 14))));
 
-    test("without the command the row is MARCAR, and the card borrows the rule file's titles", async ($, on) => {
+    test("without the command the row holds the fixed laws, and the hover card the whole phrase", async ($, on) => {
       const w = world(on, { leis: { md: LEIS_MD } });
       await $.session.start(START);
       await settle(w);
-      const tree = await $.ui.render(ABOVE());
-      expect(textOf(lawRowOf(tree))).toContain("1 Mastigado · 2 Antes · 3 Refina · 4 Contexto · 5 Aval · 6 Respaldo");
+      const tree = await $.ui.render(ABOVE(240));
+      expect(textOf(lawRowOf(tree))).toContain("1 TOP Tudo Ordenado e Pronto · 2 JÁ Jamais Aguarde o pedido · 3 TROCA Troque, Remova o Obsoleto, Consolide e Atualize · 4 LIDA Leia Inteiro, Depois Aja · 5 SIM Sem Insistir no Mesmo · 6 AVAL Antes de Violar Alguma Lei");
       expect(lawRowOf(tree).hover).toEqual({ scope: "glint-leis" });
       const card = lawCardOf(tree);
       expect(card.props.display).toBe("none");
       expect(card.hover).toEqual({ display: "flex", scope: "glint-leis" });
-      expect(textOf(card)).toContain("lista fixa do glint, títulos do 00-leis-dois-p.md");
-      const full = textOf(lawCardOf(await $.ui.render(ABOVE(170, 14))));
-      for (const title of ["Mastigado   Leonardo, produtividade", "Antes   Central, proatividade", "Contexto   contexto sobre tudo", "Respaldo"]) expect(full).toContain(title);
+      const full = await cardAt($);
+      expect(full).toContain("lista fixa do glint, títulos do 00-leis-dois-p.md");
+      expect(full).toContain("TOP  Tudo Ordenado e Pronto (entrega mastigada)");
+      expect(full).not.toContain("T.O.P.");
+      expect(full).toContain("AVAL  Antes de Violar Alguma Lei");
     });
 
-    test("the six laws show whole at every width: names, then letters, then the word MARCAR", async ($, on) => {
+    test("a rule file still on the old laws lends no title to the new ones", async ($, on) => {
+      const w = world(on, { leis: { md: OLD_MD } });
+      await $.session.start(START);
+      await settle(w);
+      const full = await cardAt($);
+      expect(full).not.toContain("produtividade");
+      expect(full).not.toContain("aprimoramento");
+      expect(full).toContain("lista fixa do glint");
+      expect(full).not.toContain("títulos do");
+      expect(full).toContain("TOP  Tudo Ordenado e Pronto");
+    });
+
+    test("the six laws show whole at every width, from the phrase down to the acronyms", async ($, on) => {
       const w = world(on);
       await $.session.start(START);
       await settle(w);
-      const rowAt = async (cols: number) => textOf(lawRowOf(await $.ui.render(ABOVE(cols))));
-      for (const cols of [30, 40, 60, 80, 100, 120, 160]) {
-        const row = await rowAt(cols);
+      for (const cols of [20, 30, 40, 60, 80, 100, 120, 160, 220]) {
+        const row = await rowAt($, cols);
         expect(row.includes("…")).toBe(false);
         expect(cellsOf(row)).toBeLessThanOrEqual(cols - 4);
       }
-      for (const cols of [80, 100, 120, 160]) expect(await rowAt(cols)).toContain("1 Mastigado · 2 Antes · 3 Refina · 4 Contexto · 5 Aval · 6 Respaldo");
-      expect(await rowAt(60)).toContain("1 M · 2 A · 3 R · 4 C · 5 A · 6 R");
-      expect(await rowAt(30)).toContain("MARCAR");
+      for (const cols of [100, 120, 160]) expect(await rowAt($, cols)).toContain("1 TOP pronto · 2 JÁ já · 3 TROCA troca · 4 LIDA lida · 5 SIM sim · 6 AVAL aval");
+      expect(await rowAt($, 80)).toContain("1 TOP · 2 JÁ · 3 TROCA · 4 LIDA · 5 SIM · 6 AVAL");
+      expect(await rowAt($, 40)).toContain("TOP JÁ TROCA LIDA SIM AVAL");
+      expect(await rowAt($, 20)).toContain("1 2 3 4 5 6");
     });
 
-    test("central leis --curto, once it exists, replaces the fixed list and keeps the file's titles", async ($, on) => {
-      const w = world(on, { leis: { cmd: CMD, md: LEIS_MD } });
+    test("central leis --curto, once it exists, replaces the fixed list and keeps the matching titles", async ($, on) => {
+      const w = world(on, { leis: { cmd: CMD.replace("Sem Insistir no Mesmo | sim | SIM", "Sem Insistir Nunca | nunca | SIN"), md: LEIS_MD } });
       await $.session.start(START);
       await settle(w);
-      expect(textOf(lawRowOf(await $.ui.render(ABOVE(170))))).toContain("1 Pronto · 2 Antes · 3 Refina · 4 Contexto · 5 Aprovado · 6 Palavra");
-      expect(textOf(lawRowOf(await $.ui.render(ABOVE(30))))).toContain("PARCAP");
-      const card = textOf(lawCardOf(await $.ui.render(ABOVE(170, 14))));
-      expect(card).toContain("central leis --curto");
-      expect(card).toContain("Pronto   Leonardo, produtividade");
+      expect(await rowAt($, 80)).toContain("5 SIN");
+      const card = await cardAt($);
+      expect(card).toContain("central leis --curto, títulos do 00-leis-dois-p.md");
+      expect(card).toContain("Tudo Ordenado e Pronto (entrega mastigada)");
     });
 
-    test("a command line without keyword or letter still fits, cut to five letters, then numbers", async ($, on) => {
+    test("a command line without keyword or acronym still fits, cut to five letters, then numbers", async ($, on) => {
       const w = world(on, { leis: { cmd: "1 produtividade\n2,proatividade\n3 aprimoramento\n4 contexto\n5 aprovação aprendida\n6 palavra dele\n" } });
       await $.session.start(START);
       await settle(w);
-      expect(textOf(lawRowOf(await $.ui.render(ABOVE(110))))).toContain("2 proatividade · 3 aprimoramento · 4 contexto · 5 aprovação · 6 palavra");
-      expect(textOf(lawRowOf(await $.ui.render(ABOVE(70))))).toContain("1 produ · 2 proat · 3 aprim · 4 conte · 5 aprov · 6 palav");
-      expect(textOf(lawRowOf(await $.ui.render(ABOVE(30))))).toContain("1 2 3 4 5 6");
+      expect(await rowAt($, 110)).toContain("2 proatividade · 3 aprimoramento · 4 contexto · 5 aprovação · 6 palavra");
+      expect(await rowAt($, 70)).toContain("1 produ · 2 proat · 3 aprim · 4 conte · 5 aprov · 6 palav");
+      expect(await rowAt($, 30)).toContain("1 2 3 4 5 6");
     });
 
     test("the row gives way when the band has no room left for it", async ($, on) => {
