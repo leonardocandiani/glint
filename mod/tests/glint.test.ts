@@ -682,8 +682,11 @@ describe("glint mod", () => {
         expect(row.includes("…")).toBe(false);
         expect(cellsOf(row)).toBeLessThanOrEqual(cols - 4);
       }
-      for (const cols of [100, 120, 160]) expect(await rowAt($, cols)).toContain("1 TOP pronto · 2 JÁ já · 3 TROCA troca · 4 LIDA lida · 5 SIM sim · 6 AVAL aval");
-      expect(await rowAt($, 80)).toContain("1 TOP · 2 JÁ · 3 TROCA · 4 LIDA · 5 SIM · 6 AVAL");
+      for (const cols of [80, 100, 120, 160]) {
+        const row = await rowAt($, cols);
+        expect(row).toContain("1 TOP · 2 JÁ · 3 TROCA · 4 LIDA · 5 SIM · 6 AVAL");
+        for (const echo of ["pronto", " já", " troca", " lida", " sim", " aval"]) expect(row).not.toContain(echo);
+      }
       expect(await rowAt($, 40)).toContain("TOP JÁ TROCA LIDA SIM AVAL");
       expect(await rowAt($, 20)).toContain("1 2 3 4 5 6");
     });
