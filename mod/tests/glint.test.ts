@@ -37,7 +37,7 @@ async function settled($: any, above: any) {
 const cellsOf = (text: string) => [...text].reduce((n, ch) => n + (/[\u2460-\u24ff\ue000-\uf8ff]|[\u{f0000}-\u{ffffd}]/u.test(ch) ? 2 : 1), 0);
 const links = (node: any) => walk(node).filter((n) => n.type === "Link").map((n) => n.props.href);
 
-type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number }; term?: Record<string, string>; leis?: { cmd?: string; md?: string; pdf?: boolean; site?: number }; third?: boolean };
+type World = { branch?: string; tokens?: number; util5?: number | null; util7?: number | null; rateLimits?: any[]; cjk?: boolean; worktree?: boolean; agenda?: any[]; icloud?: { creds?: "env" | "file" | "none"; login?: number; events?: string[] }; mac?: { calendars?: string; events?: string; exit?: number }; term?: Record<string, string>; leis?: { cmd?: string; md?: string; pdf?: boolean; site?: number }; third?: boolean; reserves?: string[] };
 
 function world(on: any, o: World = {}) {
   const clock = mock.clock(on, { now: T0 });
@@ -53,7 +53,7 @@ function world(on: any, o: World = {}) {
     [`${HOME}/.claude/.cache/claude-latest-version`]: `2.1.290 ${NOW_S}`,
     ...(o.third
       ? {
-          [`${HOME}/.config/claude-account/policy.json`]: JSON.stringify({ preferred: "proteauto", fallback: "leo", reserves: ["rejani"] }),
+          [`${HOME}/.config/claude-account/policy.json`]: JSON.stringify({ preferred: "proteauto", fallback: "leo", reserves: o.reserves ?? ["rejani"] }),
           [`${HOME}/.config/claude-account/active`]: "rejani\n",
           [`${HOME}/.config/claude-account/profiles/rejani.json`]: JSON.stringify({ type: "oauth_token", name: "rejani" }),
           [`${HOME}/.config/claude-account/measure.json`]: JSON.stringify({
@@ -175,6 +175,15 @@ describe("glint mod", () => {
     const t = textOf(await $.ui.render(ABOVE()));
     for (const fact of ["③", "5h 8%", "7d 26%"]) expect(t).toContain(fact);
     expect(t).not.toContain("①");
+  });
+
+  test("the mark is the position in the whole chain: the second reserve shows as ④", async ($, on) => {
+    const w = world(on, { third: true, reserves: ["other", "rejani"] });
+    await $.session.start(START);
+    await settle(w);
+    const t = textOf(await $.ui.render(ABOVE()));
+    expect(t).toContain("④");
+    for (const mark of ["①", "②", "③"]) expect(t).not.toContain(mark);
   });
 
   test("shows the status line facts Claude Code does not", async ($, on) => {

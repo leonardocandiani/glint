@@ -41,7 +41,7 @@ const s = {
   version: "",
   modes: { effort: "", thinking: false, fast: false, reduceMotion: false },
   git: { project: "", branch: "", dirty: 0, files: [], worktree: false, repoUrl: null, upstream: false, ahead: 0, behind: 0, last: null },
-  account: { name: "", preferred: "", fallback: "" },
+  account: { name: "", chain: [] },
   measure: null,
   net: { latest: "", status: "", degraded: "", netMs: "" },
   ctx: { tokens: 0, window: 0, pct: 0 },
@@ -164,11 +164,11 @@ export function blocks(now, columns) {
 function usageBlocks(nowS) {
   const parts = [];
   if (s.account.name) {
-    // Position in the autoswitch chain: ① preferred, ② fallback, ③ a reserve or a hand-picked account.
-    const a = s.account;
-    const rank = !a.preferred ? 0 : a.name === a.preferred ? 1 : a.name === a.fallback ? 2 : 3;
-    const mark = ["", "①", "②", "③"][rank] || icon("user");
-    parts.push({ text: `${mark}  `, fg: [INK.second, INK.accent, INK.amber, INK.second][rank], bold: true });
+    // Position in the autoswitch chain (preferred, fallback, then the reserves in order); an
+    // account outside the chain shows the plain user icon.
+    const rank = s.account.chain.indexOf(s.account.name) + 1;
+    const mark = ["", "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"][rank] || icon("user");
+    parts.push({ text: `${mark}  `, fg: rank === 1 ? INK.accent : rank === 2 ? INK.amber : INK.second, bold: true });
   }
   const wins = windows(nowS);
   const risky = wins.filter((w) => w.reserve !== null).sort((a, b) => a.reserve - b.reserve)[0];
@@ -916,7 +916,7 @@ async function readJson($, path) {
 
 async function readAccount($, home) {
   const dir = `${home}/.config/claude-account`;
-  if (!(await $.fs.exists(`${dir}/profiles`))) return { name: "", preferred: "" };
+  if (!(await $.fs.exists(`${dir}/profiles`))) return { name: "", chain: [] };
   const policy = await readJson($, `${dir}/policy.json`);
   const token = await $.env.get("CLAUDE_CODE_OAUTH_TOKEN");
   let name = "";
@@ -953,7 +953,9 @@ async function readAccount($, home) {
     }
     name ||= "nativo";
   }
-  return { name, preferred: String(policy?.preferred ?? ""), fallback: String(policy?.fallback ?? "") };
+  const chain = [policy?.preferred, policy?.fallback, ...(Array.isArray(policy?.reserves) ? policy.reserves : [])]
+    .filter((n) => typeof n === "string" && n !== "");
+  return { name, chain };
 }
 
 // Number(null) is 0, which would paint a failed measure as 0% used.
